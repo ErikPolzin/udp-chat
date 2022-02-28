@@ -1,9 +1,9 @@
 """Terminal-based chat client, used in conjunction with a running ServerChatProtocol endpoint."""
 import asyncio
 import sys
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
-from async_udp_server import ChatHeader, ChatMessage
+from async_udp_server import ChatHeader, ChatMessage, Address, get_host_and_port
 
 
 class ClientChatProtocol(asyncio.Protocol):
@@ -15,14 +15,26 @@ class ClientChatProtocol(asyncio.Protocol):
 
     MAX_TIMEOUT = 10  # Max timeout (s). After this, the socket is closed.
 
+    @classmethod
+    async def create(cls, server_addr: Address):
+        """Create a new ClientChatProtocol in the async event loop."""
+        loop = asyncio.get_running_loop()
+        on_con_lost = loop.create_future()
+
+        transport, protocol = await loop.create_datagram_endpoint(
+            lambda: cls(on_con_lost),
+            remote_addr=server_addr)
+        return protocol
+
     def __init__(self, on_con_lost: asyncio.Future):
         """Initialize the protocol. At this stage, no transport has been created."""
         self.on_con_lost = on_con_lost
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.verify_timers: Dict[int, asyncio.Task] = {}
         self.bytes_sent: int = 0
+        self.on_receive_message_listener: Optional[Callable[[ChatMessage], None]] = None
 
-    def connection_made(self, transport: asyncio.DatagramTransport):
+    def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         """Connection made to the server.
         
         For UDP, this doesn't mean very much, since the protocol is connectionless,
@@ -51,14 +63,26 @@ class ClientChatProtocol(asyncio.Protocol):
         self.verify_timers[self.bytes_sent] = asyncio.create_task(verify_coroutine)
         self.bytes_sent += len(msg_bytes)
 
-    async def verify_message(self, delay: int, msg: ChatMessage, resend=False):
+    def total_delay(self, delay: float) -> float:
+        """Estimate the total time spent attempting to reach the server."""
+        tot_time = 0
+        prev_delay = 0.5
+        while prev_delay <= delay:
+            tot_time += prev_delay
+            prev_delay *= 2
+        return tot_time
+
+    async def verify_message(self, delay: float, msg: ChatMessage, resend=False):
         """Asynchronously verify messages in the event loop."""
+        if self.total_delay(delay) >= self.MAX_TIMEOUT:
+            print("Server didn't respond after MAX_TIMEOUT, cancel ")
+            return
         print('Send:' if not resend else "Resend:", msg)
         await asyncio.sleep(delay)
         # Double the delay for the next resend
         self.send_message(None, msg, delay*2, resend=True)
 
-    def datagram_received(self, data, addr):
+    def datagram_received(self, data: bytes, addr: Address):
         """Received a datagram from the server."""
         msg = ChatMessage.from_bytes(data)
         # Received an ack, try stop the timer
@@ -68,6 +92,8 @@ class ClientChatProtocol(asyncio.Protocol):
                 timerTask.cancel()
             print(f"Verified msg {msg.header.SEQN}")
             return
+        if self.on_receive_message_listener is not None:
+            self.on_receive_message_listener(msg)
         print("Received:", msg)
 
     def error_received(self, exc):
@@ -79,6 +105,10 @@ class ClientChatProtocol(asyncio.Protocol):
         print("Connection closed")
         self.on_con_lost.set_result(True)
 
+    def set_receive_listener(self, listener: Callable[[ChatMessage], None]):
+        """Set an external listener for incoming chat messages."""
+        self.on_receive_message_listener = listener
+
 
 async def ainput(string: str = None) -> str:
     """Await user input from standard input."""
@@ -88,28 +118,22 @@ async def ainput(string: str = None) -> str:
     return str(await asyncio.get_event_loop().run_in_executor(
             None, sys.stdin.readline)).strip("\n")
 
-async def main():
+async def main(server_addr: Address):
     """Run the client, sending typed messages from the terminal to the default chat room."""
-    # Get a reference to the event loop as we plan to use
-    # low-level APIs.
-    loop = asyncio.get_running_loop()
-
-    on_con_lost = loop.create_future()
-
-    transport, protocol = await loop.create_datagram_endpoint(
-        lambda: ClientChatProtocol(on_con_lost),
-        remote_addr=('127.0.0.1', 5000))
-
+    print(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
+    protocol: ClientChatProtocol = await ClientChatProtocol.create(server_addr)
     try:
         while True:
             text = await ainput()
             protocol.send_message({"type": ChatMessage.CHT, "text": text, "group": "default"})
     finally:
-        transport.close()
+        protocol.transport.close()
 
 
 if __name__ == "__main__":
+    server_addr = get_host_and_port()
     try:
-        asyncio.run(main())
+        asyncio.run(main(server_addr))
     except KeyboardInterrupt:
         print("aught keyboard interrupt, exiting...")
+        sys.exit(1)

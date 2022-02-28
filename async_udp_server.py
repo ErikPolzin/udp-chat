@@ -121,15 +121,18 @@ class ServerChatProtocol(asyncio.Protocol):
             group_name = msg.data.get("group", "default")
             self.group_layer.group_send(group_name, msg)
 
-
-async def main():
-    # Get the host and port from optional system args
+def get_host_and_port() -> Address:
+    """Get the host and port from system args."""
     if len(sys.argv) == 3:
         host, port = sys.argv[1], int(sys.argv[2])
     elif len(sys.argv) == 2:
         host, port = sys.argv[1], 5000
     else:
         host, port = '127.0.0.1', 5000
+    return (host, port)
+
+async def main():
+    host, port = get_host_and_port()
     print(f"Starting UDP server at {host}:{port}...")
 
     loop = asyncio.get_event_loop()
@@ -149,3 +152,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("aught keyboard interrupt, exiting...")
+        sys.exit(1)

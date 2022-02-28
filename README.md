@@ -21,3 +21,11 @@ python3 async_udp_client.py
 ```
 
 Type a message into the console, and see it broadcast to other clients in the default chat group.
+
+
+## Running a GUI client
+
+Ensure PyQT5 is installed. Then run (from the root directory):
+```bash
+python3 -m gui_client
+```

@@ -5,11 +5,11 @@ from multiprocessing.sharedctypes import Value
 import struct
 import sys
 from enum import Enum
-from typing import Optional, Tuple, NamedTuple
+from typing import Dict, Optional, Set, Tuple, NamedTuple
 from exceptions import ItemAlreadyExistsException, ItemNotFoundException
 
 # Constants
-HEADER_FORMAT: str = "!i??"
+HEADER_FORMAT: str = "!i???"
 HEADER_STRUCT: struct.Struct = struct.Struct(HEADER_FORMAT)
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
@@ -22,6 +22,7 @@ class ChatHeader(NamedTuple):
     SEQN: int = 0
     ACK: bool = False
     SYN: bool = False
+    FIN: bool = False
 
     @classmethod
     def from_bytes(cls, data: bytes) -> 'ChatHeader':
@@ -60,6 +61,8 @@ class ChatMessage(object):
             return f"<ChatMessage {self.header.SEQN}: ACK>"
         if self.header.SYN:
             return f"<ChatMessage {self.header.SEQN}: SYN>"
+        if self.header.FIN:
+            return f"<ChatMessage {self.header.SEQN}: FIN>"
         if self.data and self.type:
             grp = self.data.get("group", "default")
             if self.type == ChatMessage.MessageType.CHT:
@@ -82,7 +85,7 @@ class ChatMessage(object):
         return self.header.to_bytes() + json.dumps(self.data).encode()
 
 
-class InMemoryGroupLayer(dict):
+class InMemoryGroupLayer(Dict[str, Set[Address]]):
     """Registers, removed and sends messages to groups."""
 
     def __init__(self, transport: asyncio.DatagramTransport):
@@ -110,6 +113,11 @@ class InMemoryGroupLayer(dict):
         for addr in self.get(group, set()):
             self.transport.sendto(msg.to_bytes(), addr)
 
+    def deregister_address(self, addr: Address) -> None:
+        """De-register address from all groups."""
+        for addresses in self.values():
+            addresses.discard(addr)
+
 
 class ServerChatProtocol(asyncio.Protocol):
     """Server-side chat protocol.
@@ -132,6 +140,10 @@ class ServerChatProtocol(asyncio.Protocol):
         """Created a connection to a remote socket."""
         self.group_layer.group_sub("default", addr)
 
+    def client_connection_terminated(self, addr: Address) -> None:
+        """Signalled to close the connection to the server."""
+        self.group_layer.deregister_address(addr)
+
     def datagram_received(self, data: bytes, addr: Address) -> None:
         """Received a datagram from the chat's socket."""
         if self.transport is None:
@@ -139,6 +151,8 @@ class ServerChatProtocol(asyncio.Protocol):
         msg = ChatMessage.from_bytes(data)
         if msg.header.SYN:
             self.client_connection_made(addr)
+        if msg.header.FIN:
+            self.client_connection_terminated(addr)
         print('Received %s from %s' % (msg, addr))
         ack_msg = ChatMessage(ChatHeader(msg.header.SEQN, ACK=True, SYN=False), {})
         # Determine the message type and process accordingly

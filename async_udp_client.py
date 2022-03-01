@@ -4,6 +4,7 @@ import sys
 from typing import Callable, Dict, Optional
 
 from async_udp_server import ChatHeader, ChatMessage, Address, get_host_and_port
+from exceptions import RequestTimedOutException
 
 
 class ClientChatProtocol(asyncio.Protocol):
@@ -13,7 +14,7 @@ class ClientChatProtocol(asyncio.Protocol):
     and veryfing their arrival.
     """
 
-    MAX_TIMEOUT = 10  # Max timeout (s). After this, the socket is closed.
+    MAX_TIMEOUT = 5  # Max timeout (s). After this, the socket is closed.
 
     @classmethod
     async def create(cls, server_addr: Address):
@@ -45,9 +46,12 @@ class ClientChatProtocol(asyncio.Protocol):
         connect_msg = ChatMessage(ChatHeader(SEQN=0, ACK=False, SYN=True))
         self.send_message(msg=connect_msg, on_response=self.connected_to_server)
 
-    def connected_to_server(self, response: ChatMessage):
+    def connected_to_server(self, response: asyncio.Future):
         """Callback after the client has made a successful connection to the server."""
-        print("Connected to server!")
+        if response.exception():
+            print("Error connecting to server")
+        else:
+            print("Connected to server!")
 
     def send_message(self,
                      data: Dict = None,
@@ -64,7 +68,7 @@ class ClientChatProtocol(asyncio.Protocol):
         # Verify the message:
         # 1. Create a future response to set when the verification succeeds
         future_response = asyncio.get_event_loop().create_future()
-        verify_coroutine = self.verify_message(msg)
+        verify_coroutine = self.verify_message(msg, future_response)
         # Start the verification task
         verify_task = asyncio.create_task(verify_coroutine)
         # Cancel the verification task when the response is returned
@@ -77,16 +81,22 @@ class ClientChatProtocol(asyncio.Protocol):
         # Allows await send_message()
         return future_response
 
-    async def verify_message(self, msg: ChatMessage, delay: float = 0.5):
+    async def verify_message(
+            self, msg: ChatMessage, future_response: asyncio.Future, delay: float = 0.5):
         """Asynchronously verify messages in the event loop."""
-        while delay < self.MAX_TIMEOUT:
+        total_delay = 0
+        while total_delay < self.MAX_TIMEOUT:
             msg_bytes = msg.to_bytes()
-            await asyncio.sleep(delay)
+            actual_delay = min(delay, self.MAX_TIMEOUT-total_delay)
+            await asyncio.sleep(actual_delay)
+            total_delay += actual_delay
             # Send a message, but don't start a new verification task
             # (since this one is already running)
-            print(f"Re-send {msg} (verification timed out after {delay:.1}s)")
+            print(f"Re-send {msg} (verification timed out after {delay:.1f}s)")
             self.transport.sendto(msg_bytes)
             delay *= 2  # Wait for twice as long
+        print(f"Timed out after {total_delay:.1f}s, cancel request.")
+        future_response.set_exception(RequestTimedOutException)
 
     def datagram_received(self, data: bytes, addr: Address):
         """Received a datagram from the server."""

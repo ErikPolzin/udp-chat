@@ -30,7 +30,7 @@ class ClientChatProtocol(asyncio.Protocol):
         """Initialize the protocol. At this stage, no transport has been created."""
         self.on_con_lost = on_con_lost
         self.transport: Optional[asyncio.DatagramTransport] = None
-        self.verify_timers: Dict[int, asyncio.Task] = {}
+        self.future_responses: Dict[int, asyncio.Future] = {}
         self.bytes_sent: int = 0
         self.on_receive_message_listener: Optional[Callable[[ChatMessage], None]] = None
 
@@ -43,13 +43,16 @@ class ClientChatProtocol(asyncio.Protocol):
         """
         self.transport = transport
         connect_msg = ChatMessage(ChatHeader(SEQN=0, ACK=False, SYN=True))
-        self.send_message(msg=connect_msg)
+        self.send_message(msg=connect_msg, on_response=self.connected_to_server)
+
+    def connected_to_server(self, response: ChatMessage):
+        """Callback after the client has made a successful connection to the server."""
+        print("Connected to server!")
 
     def send_message(self,
                      data: Dict = None,
                      msg: ChatMessage = None,
-                     verify_timeout=0.5,
-                     resend=False) -> None:
+                     on_response: asyncio.Future = None) -> None:
         """Send a message to the server. Starts a timer to verify receipt."""
         if msg is None:
             if data is None:
@@ -58,42 +61,49 @@ class ClientChatProtocol(asyncio.Protocol):
         msg_bytes = msg.to_bytes()
         # Push the message onto the write buffer
         self.transport.sendto(msg_bytes)
-        # Start the verify timer coroutine
-        verify_coroutine = self.verify_message(verify_timeout, msg, resend=resend)
-        self.verify_timers[self.bytes_sent] = asyncio.create_task(verify_coroutine)
+        # Verify the message:
+        # 1. Create a future response to set when the verification succeeds
+        future_response = asyncio.get_event_loop().create_future()
+        verify_coroutine = self.verify_message(msg)
+        # Start the verification task
+        verify_task = asyncio.create_task(verify_coroutine)
+        # Cancel the verification task when the response is returned
+        future_response.add_done_callback(lambda f: verify_task.cancel())
+        # Add an optional user-specified response callback
+        if on_response:
+            future_response.add_done_callback(on_response)
+        self.future_responses[self.bytes_sent] = future_response
         self.bytes_sent += len(msg_bytes)
+        # Allows await send_message()
+        return future_response
 
-    def total_delay(self, delay: float) -> float:
-        """Estimate the total time spent attempting to reach the server."""
-        tot_time = 0
-        prev_delay = 0.5
-        while prev_delay <= delay:
-            tot_time += prev_delay
-            prev_delay *= 2
-        return tot_time
-
-    async def verify_message(self, delay: float, msg: ChatMessage, resend=False):
+    async def verify_message(self, msg: ChatMessage, delay: float = 0.5):
         """Asynchronously verify messages in the event loop."""
-        if self.total_delay(delay) >= self.MAX_TIMEOUT:
-            print("Server didn't respond after MAX_TIMEOUT, cancel ")
-            return
-        print('Send:' if not resend else "Resend:", msg)
-        await asyncio.sleep(delay)
-        # Double the delay for the next resend
-        self.send_message(None, msg, delay*2, resend=True)
+        while delay < self.MAX_TIMEOUT:
+            msg_bytes = msg.to_bytes()
+            await asyncio.sleep(delay)
+            # Send a message, but don't start a new verification task
+            # (since this one is already running)
+            print(f"Re-send {msg} (verification timed out after {delay:.1}s)")
+            self.transport.sendto(msg_bytes)
+            delay *= 2  # Wait for twice as long
 
     def datagram_received(self, data: bytes, addr: Address):
         """Received a datagram from the server."""
         msg = ChatMessage.from_bytes(data)
         # Received an ack, try stop the timer
         if msg.header.ACK:
-            timerTask = self.verify_timers.get(msg.header.SEQN)
-            if timerTask is not None:
-                timerTask.cancel()
+            future_response = self.future_responses.get(msg.header.SEQN)
+            # Stop running the timer task
+            if future_response is not None:
+                # Set the response - this will cancel the verification task
+                # and call the optional response callback
+                future_response.set_result(msg)
+                # Remove the from the list of future responses
+                del self.future_responses[msg.header.SEQN]
             status = msg.data.get("status")
-            if status != 200:
+            if status != 200 and status is not None:
                 print(f"Received error: {msg.data.get('error')} [{status}]")
-            print(f"Verified msg {msg.header.SEQN}")
             return
         if self.on_receive_message_listener is not None:
             self.on_receive_message_listener(msg)

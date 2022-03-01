@@ -90,6 +90,9 @@ class ClientChatProtocol(asyncio.Protocol):
             timerTask = self.verify_timers.get(msg.header.SEQN)
             if timerTask is not None:
                 timerTask.cancel()
+            status = msg.data.get("status")
+            if status != 200:
+                print(f"Received error: {msg.data.get('error')} [{status}]")
             print(f"Verified msg {msg.header.SEQN}")
             return
         if self.on_receive_message_listener is not None:
@@ -125,7 +128,16 @@ async def main(server_addr: Address):
     try:
         while True:
             text = await ainput()
-            protocol.send_message({"type": ChatMessage.CHT, "text": text, "group": "default"})
+            # Extract message type from input
+            mtype = ChatMessage.MessageType.CHT
+            group = "default"
+            if ":" in text:
+                mtype_txt, text = text.split(":")
+                mtype = ChatMessage.MessageType(mtype_txt)
+            # Extract group name from input
+            if "GRP=" in text:
+                text, group = text.split("GRP=")
+            protocol.send_message({"type": mtype.value, "text": text, "group": group})
     finally:
         protocol.transport.close()
 
@@ -136,4 +148,4 @@ if __name__ == "__main__":
         asyncio.run(main(server_addr))
     except KeyboardInterrupt:
         print("aught keyboard interrupt, exiting...")
-        sys.exit(1)
+        sys.exit(0)

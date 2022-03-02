@@ -8,6 +8,8 @@ from async_udp_client import ClientChatProtocol
 from async_udp_server import Address, ChatMessage, get_host_and_port
 import resources
 
+from .chat_canvas import ChatCanvas
+
 try:
     from qasync import QEventLoop
 except ImportError:
@@ -37,37 +39,26 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.sidebar_widget = ChatSidebar()
         self.content_widget = QStackedWidget()
+        self.canvas = ChatCanvas("default")
         self.setCentralWidget(self.content_widget)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.sidebar_widget)
         self.setWindowTitle("UDP Chat Client")
-        self.is_exited = False
         self.client: Optional[ClientChatProtocol] = None
+        self.content_widget.addWidget(self.canvas)
 
     def onReceiveMessage(self, msg: ChatMessage):
         """Client received a new message."""
-        print("GUI: received message", msg)
+        if msg.type == ChatMessage.MessageType.CHT:
+            self.canvas.addMessage(msg.data.get("text"))
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
         self.client: ClientChatProtocol = await ClientChatProtocol.create(server_addr)
-        self.client.set_receive_listener(self.onReceiveMessage)
-
-    async def mainLoop(self, server_addr: Address):
-        """Run the Qt event loop and asyncio event loop side-by-side."""
         print(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
-        # No authentication, so we can do this immediately. Eventually we'll have
-        # to delay creating the client until the user has logged in.
-        await self.create_client(server_addr)
-        app = QApplication.instance()
-        while not self.is_exited:
-            app.processEvents()
-            await asyncio.sleep(0)
-        print("Application exited")
-
-    def closeEvent(self, a0: QCloseEvent) -> None:
-        """Update the is_exited boolean."""
-        self.is_exited = True
-        return super().closeEvent(a0)
+        # Allow the GUI to receive messages from the client
+        self.client.set_receive_listener(self.onReceiveMessage)
+        # Allow the GUI to send messages to the client
+        self.canvas.sendMessage.connect(self.client.send_message)
 
 
 if __name__ == "__main__":

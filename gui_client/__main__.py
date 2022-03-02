@@ -2,11 +2,16 @@ import asyncio
 from typing import Optional
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QDockWidget
 
 from async_udp_client import ClientChatProtocol
 from async_udp_server import Address, ChatMessage, get_host_and_port
+import resources
+
+try:
+    from qasync import QEventLoop
+except ImportError:
+    print("The GUI needs qasync to run, please install it!")
 
 
 class ChatSidebar(QDockWidget):
@@ -70,9 +75,13 @@ if __name__ == "__main__":
     app = QApplication([])
 
     window = MainWindow()
-    window.show()
+    window.showMaximized()
 
-    loop = asyncio.get_event_loop()
-    # Create a separate task to run PyQt and asyncio alongside oneanother
-    window_loop_task = asyncio.ensure_future(window.mainLoop(server_addr))
-    loop.run_until_complete(window_loop_task)
+    loop = QEventLoop(app)
+    asyncio.set_event_loop(loop)
+
+    with loop:
+        # Create a separate task to run PyQt and asyncio alongside oneanother
+        asyncio.create_task(window.create_client(server_addr))
+        loop.run_forever()
+        print("Application exited.")

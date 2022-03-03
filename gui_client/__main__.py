@@ -1,5 +1,6 @@
 import asyncio
 from typing import Optional
+from datetime import datetime
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QDockWidget
@@ -49,7 +50,14 @@ class MainWindow(QMainWindow):
     def onReceiveMessage(self, msg: ChatMessage):
         """Client received a new message."""
         if msg.type == ChatMessage.MessageType.CHT:
-            self.canvas.addMessage(msg.data.get("text"))
+            try:
+                text = msg.data["text"]
+                username = msg.data["username"]
+                time_sent = datetime.fromisoformat(msg.data["time_sent"])
+            except KeyError as k:
+                print(f"Received improperly formatted message (missing '{k}'")
+                return
+            self.canvas.addMessage(text, username, time_sent)
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
@@ -59,6 +67,24 @@ class MainWindow(QMainWindow):
         self.client.set_receive_listener(self.onReceiveMessage)
         # Allow the GUI to send messages to the client
         self.canvas.sendMessage.connect(self.client.send_message)
+        # Fetch the persisted messages
+        self.client.send_message({
+            "type": ChatMessage.MessageType.MSG_HST.value,
+            "group": "default",
+            "username": "root",
+        }, on_response=self.onReceiveHistoricalMessages)
+
+    def onReceiveHistoricalMessages(self, resp: asyncio.Future):
+        """Request historical messages from the server's database."""
+        if resp.exception():
+            print("Error retrieving historical messages.")
+        else:
+            msg: ChatMessage = resp.result()
+            for hmsg in msg.data.get("response", []):
+                self.canvas.addMessage(
+                    hmsg["Text"],
+                    hmsg["Username"],
+                    datetime.fromisoformat(hmsg["Date_Sent"]))
 
 
 if __name__ == "__main__":

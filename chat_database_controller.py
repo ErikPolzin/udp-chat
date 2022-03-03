@@ -1,136 +1,176 @@
+from typing import Dict, List, Tuple
 import mysql.connector
-from mysql.connector import Error
+from mysql.connector import Error, MySQLConnection
+from mysql.connector.cursor import MySQLCursor
 from datetime import datetime
+from exceptions import ItemNotFoundException
 
 class DatabaseController():
 
-    def __init__(self, pswd, db_name):
-        connection = self.create_database_connection("localhost", "root", pswd, db_name)
-        self.create_database(connection, "CREATE DATABASE "+db_name)
-        user_query = """CREATE TABLE USER (
-            User_Address VARCHAR(50) PRIMARY KEY,
-            Username VARCHAR(50)  NOT NULL,
+    def __init__(
+            self,
+            db_name: str,
+            pswd: str,
+            host: str = "localhost",
+            user: str = "root"):
+        """Create a new database controller with given parameters."""
+
+        # Controller constants
+        self.host = host
+        self.pswd = pswd
+        self.db_name = db_name
+        self.user = user
+
+        # Create the database if it doesn't exist
+        self.create_database(db_name)
+        user_query = """CREATE TABLE IF NOT EXISTS User (
+            UserID INT AUTO_INCREMENT PRIMARY KEY,
+            Address VARCHAR(50),
+            Username VARCHAR(50)  NOT NULL UNIQUE,
             Password VARCHAR(50)  NOT NULL
             );"""
-        group_query = """CREATE TABLE Group (
-            GroupID VARCHAR(50) PRIMARY KEY,
-            Name VARCHAR(50)  NOT NULL,
-            Password VARCHAR(50)  NOT NULL,
-            Date_Created DATETIME(50) NOT NULL
+        group_query = """CREATE TABLE IF NOT EXISTS Room (
+            RoomID INT AUTO_INCREMENT PRIMARY KEY,
+            Name VARCHAR(50)  NOT NULL UNIQUE,
+            Password VARCHAR(50),
+            Date_Created DATETIME(6) NOT NULL
             );"""
-        member_query = """CREATE TABLE Member (
-            Member_Address VARCHAR(50) NOT NULL,
-            GroupID VARCHAR(50)  NOT NULL
+        member_query = """CREATE TABLE IF NOT EXISTS Member (
+            UserID INT NOT NULL,
+            RoomID INT NOT NULL
             );"""
-        message_query = """CREATE TABLE Message (
-            MessageID VARCHAR(50) PRIMARY KEY,
-            GroupID VARCHAR(50)  NOT NULL,
-            Content VARCHAR(50) NOT NULL,
-            User_Address VARCHAR(50)  NOT NULL,
-            Date_Sent DATETIME(50) NOT NULL
+        message_query = """CREATE TABLE IF NOT EXISTS Message (
+            MessageID INT AUTO_INCREMENT PRIMARY KEY,
+            RoomID INT NOT NULL,
+            UserID INT NOT NULL,
+            Text VARCHAR(50) NOT NULL,
+            Date_Sent DATETIME(6) NOT NULL
             );"""
-        self.execute_query(connection, user_query)
-        self.execute_query(connection, group_query)
-        self.execute_query(connection, member_query)
-        self.execute_query(connection, message_query)
+        with self.connection() as conn:
+            self.execute_query(conn, user_query)
+            self.execute_query(conn, group_query)
+            self.execute_query(conn, member_query)
+            self.execute_query(conn, message_query)
+            # Create the default group if there are no groups in the DB
+            if len(self.group_names()) == 0:
+                print("Creating default group.")
+                self.new_group("default")
 
-    def new_message(self, msg, user_address: str, groupID, pswd, db_name):
-        connection = self.create_database_connection("localhost", "root", pswd, db_name)
+    def new_message(self, group_name: str, user_name: str, text: str):
+        """Create a new message row."""
+        create_msg = "INSERT INTO Message (RoomID, UserID, Text, Date_Sent) VALUES (%s, %s, %s, %s);"""
+        with self.connection() as con:
+            # Find the associated group ID
+            room_id = self.get_room_id_by_name(con, group_name)
+            user_id = self.get_user_id_by_name(con, user_name)
+            cursor = self.execute_query(
+                con, create_msg, [(room_id, user_id, text, datetime.now())])
+            m_id = cursor.lastrowid
+            print(f"Saved message {m_id}")
 
-        total_messages = str(self.read_query(connection, "SELECT COUNT(MessageID) FROM Message;"))
-        total_messages = total_messages[1:len(total_messages)]
+    def new_group(self, group_name: str, user_name: str, group_password: str = None) -> int:
+        """Create a new group row."""
+        create_room = "INSERT INTO Room (Name, Password, Date_Created) VALUES (%s, %s, %s);"
+        with self.connection() as con:
+            user_id = self.get_user_id_by_name(con, user_name)
+            cur = self.execute_query(con, create_room, [(group_name, group_password, datetime.now())])
+            group_id = cur.lastrowid
+            self.new_member(user_id, group_id)
+            return group_id
 
-        query = """INSERT INTO Message 
-            VALUES ('M"""+total_messages+"""', '"""+groupID+"""', '"""+msg+"""', '"""+user_address+"""', """+datetime.now()+"""); """
-        self.execute_query(connection, query)
+    def new_member(self, user_id: int, group_id: int) -> int:
+        """Create a new member row."""
+        query = "INSERT INTO Member (UserID, RoomID) VALUES (%s, %s);"
+        with self.connection() as con:
+            cur = self.execute_query(con, query, [(user_id, group_id)])
+            return cur.lastrowid
 
-    def new_group(self, user_address, group_name, group_password, db_pswd, db_name):
-        connection = self.create_database_connection("localhost", "root", db_pswd, db_name)
+    def message_history(self, room_name: str) -> Dict:
+        """Return message history as a list of dictionaries."""
+        with self.connection() as con:
+            room_id = self.get_room_id_by_name(con, room_name)
+            query = """
+            SELECT User.Username, Message.Text, Message.Date_Sent
+            FROM Message INNER JOIN User
+            ON Message.UserID = User.UserID
+            WHERE Message.RoomID = '%s';""" % (room_id,)
+            return self.read_query(con, query, dictionary=True)
 
-        total_groups = str(self.read_query(connection, "SELECT COUNT(GroupID) FROM Group;"))
-        total_groups = total_groups[1:len(total_groups)]
+    def group_names(self) -> List[str]:
+        """Return all group names."""
+        query = "SELECT Name FROM Room;"
+        with self.connection() as con:
+            results = self.read_query(con, query)
+            return [r[0] for r in results]
 
-        query = """INSERT INTO Group
-            VALUES ('G"""+total_groups+"""', '"""+group_name+"""', '"""+group_password+"""', """+datetime.now()+"""); """
-        self.execute_query(connection, query)
-
-    def new_member(self, user_address, groupID, db_pswd, db_name):
-        connection = self.create_database_connection("localhost", "root", db_pswd, db_name)
-
-        query = """INSERT INTO Member
-            VALUES ('"""+user_address+"""', '"""+groupID+"""');"""
-        self.execute_query(connection, query)
-
-    def message_history(self, groupID, db_pswd, db_name):
-        connection = self.create_database_connection("localhost", "root", db_pswd, db_name)
-
-        query = f"""SELECT Content FROM Message
-            WHERE GroupID = '{groupID}';"""
-        results = self.read_query(connection, query)
-        
-        msg_list = []
-        for msg in results:
-            msg = str(msg)
-            msg = msg[1:len(msg)]
-            msg_list.append(msg)
-
-        return msg_list
-
-    def group_names(self, db_pswd, db_name):
-        connection = self.create_database_connection("localhost", "root", db_pswd, db_name)
-
-        query = """SELECT Name FROM Group;"""
-        results = self.read_query(connection, query)
-
-        group_list = []
-        for name in results:
-            name = str(name)
-            name = name[1:len(name)]
-            group_list
-
-    def create_database(self, connection, query):
-        cursor = connection.cursor()
+    def create_database(self, db_name: str):
+        """Create a database with a given database name."""
+        query = "CREATE DATABASE IF NOT EXISTS "+db_name
+        con = mysql.connector.connect(
+                host=self.host,
+                user=self.user,
+                passwd=self.pswd,
+            )
+        cursor: MySQLCursor = con.cursor()
         try:
             cursor.execute(query)
             print("Successfully created Database.")
         except Error as err:
             print(f"Error: '{err}'")
-            
+        con.close()
+        return cursor
 
-    def create_database_connection(self, host_name, username, password, database_name):
-        connection = None
+    def connection(
+            self,
+            host=None,
+            user=None,
+            password=None,
+            database_name=None
+            ) -> MySQLConnection:
+        """Open a new connection to the database, or log an error."""
+        c = None
         try:
-            connection = mysql.connector.connect(
-                host=host_name,
-                user=username,
-                passwd=password,
-                database=database_name
+            c = mysql.connector.connect(
+                host=host or self.host,
+                user=user or self.user,
+                passwd=password or self.pswd,
+                database=database_name or self.db_name
             )
-            print("Successful connection to MySQL Database.")
         except Error as err:
-            print(f"Error: '{err}'")
-        return connection
+            print(f"Connection error: '{err}'")
+        return c
 
-    def execute_query(self, connection, query):
-        cursor = connection.cursor()
-        try:
+    def execute_query(self, c: MySQLConnection, query: str, values: List=None) -> MySQLCursor:
+        """Execute and commit a query to the database."""
+        cursor: MySQLCursor = c.cursor()
+        if values is not None:
+            cursor.executemany(query, values)
+        else:
             cursor.execute(query)
-            connection.commit()
-            print("Query successful.")
-            return True
-        except Error as err:
-            print(f"Error: '{err}'")
-            return False
+        c.commit()
+        return cursor
 
-    def read_query(self, connection, query):
-        cursor = connection.cursor()
-        result = None
-        try:
-            cursor.execute(query)
-            result = cursor.fetchall()
-            return result
-        except Error as err:
-            print(f"Error: '{err}'")
+    def read_query(self, c: MySQLConnection, query: str, **kwargs) -> List[Tuple]:
+        """Fetch all results from a query, or log an error."""
+        cursor: MySQLCursor = c.cursor(**kwargs)
+        cursor.execute(query)
+        return cursor.fetchall()
+
+    def get_user_id_by_name(self, c: MySQLConnection, user_name: str) -> int:
+        """Return a user row by user ID."""
+        find_user_query = "SELECT UserID FROM User WHERE Username = '%s' LIMIT 1;" % (user_name,)
+        user_row = self.read_query(c, find_user_query)
+        if len(user_row) == 0:
+            raise ItemNotFoundException(f"No User with name '{user_name}'")
+        return user_row[0][0]
+
+    def get_room_id_by_name(self, c: MySQLConnection, room_name: str) -> int:
+        """Return a room row by room ID."""
+        find_user_query = "SELECT RoomID FROM Room WHERE Name = '%s' LIMIT 1;" % (room_name,)
+        room_row = self.read_query(c, find_user_query)
+        if len(room_row) == 0:
+            raise ItemNotFoundException(f"No Room with name '{room_name}'")
+        return room_row[0][0]
 
     
 

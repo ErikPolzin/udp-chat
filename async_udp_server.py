@@ -5,8 +5,10 @@ from multiprocessing.sharedctypes import Value
 import struct
 import sys
 from enum import Enum
-from typing import Dict, Optional, Set, Tuple, NamedTuple
+from typing import Dict, List, Optional, Set, Tuple, NamedTuple, Union
 from exceptions import ItemAlreadyExistsException, ItemNotFoundException
+
+from chat_database_controller import DatabaseController
 
 # Constants
 HEADER_FORMAT: str = "!i???"
@@ -43,6 +45,7 @@ class ChatMessage(object):
         CHT = "CHT"  # Chat message
         GRP_SUB = "GRP_SUB"  # Request to subscribe to an existing group
         GRP_ADD = "GRP_ADD"  # Request to create a new group
+        MSG_HST = "MSG_HST"
 
     def __init__(self, header: ChatHeader, data: Optional[dict] = None):
         """Initialize a chat message from header and data."""
@@ -134,6 +137,7 @@ class ServerChatProtocol(asyncio.Protocol):
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         """Created a connection to the local socket."""
         self.transport = transport
+        self.db_controller = DatabaseController("udpchat", "root")
         self.group_layer = InMemoryGroupLayer(transport)
 
     def client_connection_made(self, addr: Address) -> None:
@@ -157,42 +161,53 @@ class ServerChatProtocol(asyncio.Protocol):
         ack_msg = ChatMessage(ChatHeader(msg.header.SEQN, ACK=True, SYN=False), {})
         # Determine the message type and process accordingly
         if msg.data and msg.type:
-            status, error = self.message_received(msg, addr)
+            status, data, error = self.message_received(msg, addr)
             ack_msg.data["status"] = status
             ack_msg.data["error"] = error
+            ack_msg.data["response"] = data
         # Echo an acknowledgement to the sender, with the same sequence number.
         self.transport.sendto(ack_msg.to_bytes(), addr)
 
-    def message_received(self, msg: ChatMessage, addr: Address) -> Tuple[int, Optional[str]]:
+    def message_received(
+            self, msg: ChatMessage, addr: Address
+        ) -> Tuple[int, Optional[Union[List, Dict]], Optional[str]]:
         """Received a message with an associated type. Usually called after datagram_received()."""
         mtype = msg.type
+        group_name = msg.data.get("group", "default")
+        user_name = msg.data.get("username", "root")
         # Message is a chat message, send it to the associated group
         if mtype == ChatMessage.MessageType.CHT:
-            group_name = msg.data.get("group", "default")
+            text = msg.data.get("text")
+            try:
+                self.db_controller.new_message(group_name, user_name, text)
+            except Exception as e:
+                return 500, None, "Unable to save message: {e}"
             self.group_layer.group_send(group_name, msg)
-            return 200, None
+            return 200, None, None
         # Message is a group add, try create a new group
         elif mtype == ChatMessage.MessageType.GRP_ADD:
-            if "group" not in msg.data:
-                return 400, "No group name specified"
-            group_name = msg.data["group"]
             try:
+                self.db_controller.new_group(group_name, user_name)
                 self.group_layer.group_add(group_name, addr)
-                return 200, None
+                return 200, None, None
             except ItemAlreadyExistsException:
-                return 400, "Group with this name already exists"
+                return 400, None, "Group with this name already exists"
+            except Exception as e:
+                return 500, None, f"Unable to create group: {e}"
         # Message is a group subscription, try sub to group
         elif mtype == ChatMessage.MessageType.GRP_SUB:
-            if "group" not in msg.data:
-                return 400, "No group name specified"
-            group_name = msg.data["group"]
             try:
                 self.group_layer.group_sub(group_name, addr)
-                return 200, None
+                return 200, None, None
             except ItemNotFoundException:
-                return 400, "Group with this name already exists"
+                return 400, None, "Group with this name already exists"
+        elif mtype == ChatMessage.MessageType.MSG_HST:
+            message_history = self.db_controller.message_history(group_name)
+            # Message dates have to be converted to strings for JSON
+            [m.update({"Date_Sent": m["Date_Sent"].isoformat()}) for m in message_history]
+            return 200, message_history, None
         else:
-            return 400, f"Unrecognised message type '{mtype}'"
+            return 400, None, f"Unrecognised message type '{mtype}'"
 
 
 def get_host_and_port() -> Address:

@@ -1,5 +1,6 @@
 """Terminal-based chat client, used in conjunction with a running ServerChatProtocol endpoint."""
 import asyncio
+from datetime import datetime
 import sys
 from typing import Callable, Dict, Optional
 
@@ -56,7 +57,7 @@ class ClientChatProtocol(asyncio.Protocol):
     def send_message(self,
                      data: Dict = None,
                      msg: ChatMessage = None,
-                     on_response: asyncio.Future = None) -> None:
+                     on_response: Callable = None) -> None:
         """Send a message to the server. Starts a timer to verify receipt."""
         if msg is None:
             if data is None:
@@ -157,7 +158,12 @@ async def main(server_addr: Address):
             # Extract group name from input
             if "GRP=" in text:
                 text, group = text.split("GRP=")
-            protocol.send_message({"type": mtype.value, "text": text, "group": group})
+            protocol.send_message({
+                "type": mtype.value,
+                "text": text, 
+                "group": group,
+                "time_sent": datetime.now().isoformat(),
+                "username": "root"})
     finally:
         protocol.transport.close()
 

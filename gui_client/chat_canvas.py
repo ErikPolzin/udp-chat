@@ -79,8 +79,8 @@ class ChatCanvas(QFrame):
         self.text_submit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.text_submit.setStyleSheet("border-radius: 5px; padding: 5px 15px; background-color: #444444;")
         self.text_submit.clicked.connect(self.onReturnPressed)
-        input_cont = QWidget()
-        input_layout = QHBoxLayout(input_cont)
+        self.input_cont = QWidget()
+        input_layout = QHBoxLayout(self.input_cont)
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.addWidget(self.text_input)
         input_layout.addWidget(self.text_submit)
@@ -100,7 +100,7 @@ class ChatCanvas(QFrame):
         self.scroll_widget.setWidgetResizable(True)
         self.scroll_widget.setWidget(self.viewport_widget)
         self.layout().addWidget(self.scroll_widget, stretch=2)
-        self.layout().addWidget(input_cont)
+        self.layout().addWidget(self.input_cont)
         
     def addMessage(self, text: str, username: str, time_sent: datetime) -> None:
         """Add a message to the canvas."""

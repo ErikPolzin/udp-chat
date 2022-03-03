@@ -2,7 +2,7 @@
 import asyncio
 from datetime import datetime
 import sys
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Set
 
 from async_udp_server import UDPHeader, UDPMessage, Address, get_host_and_port
 from exceptions import RequestTimedOutException
@@ -35,6 +35,7 @@ class ClientChatProtocol(asyncio.Protocol):
         self.future_responses: Dict[int, asyncio.Future] = {}
         self.bytes_sent: int = 0
         self.on_receive_message_listener: Optional[Callable[[UDPMessage], None]] = None
+        self.server_connected_listeners: Set[Callable[[], None]] = set()
 
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         """Connection made to the server.
@@ -44,6 +45,10 @@ class ClientChatProtocol(asyncio.Protocol):
         a new connection.
         """
         self.transport = transport
+        self.connect_to_server()
+
+    def connect_to_server(self):
+        """Send a connection message to the server."""
         connect_msg = UDPMessage(UDPHeader(SEQN=0, ACK=False, SYN=True))
         self.send_message(msg=connect_msg, on_response=self.connected_to_server)
 
@@ -52,6 +57,9 @@ class ClientChatProtocol(asyncio.Protocol):
         if response.exception():
             print("Error connecting to server")
         else:
+            # Call the server connect listeners.
+            for callb in self.server_connected_listeners:
+                callb()
             print("Connected to server!")
 
     def send_message(self,
@@ -98,6 +106,7 @@ class ClientChatProtocol(asyncio.Protocol):
             delay *= 2  # Wait for twice as long
         print(f"Timed out after {total_delay:.1f}s, cancel request.")
         future_response.set_exception(RequestTimedOutException)
+        self.on_con_lost.set_result(True)
 
     def datagram_received(self, data: bytes, addr: Address):
         """Received a datagram from the server."""
@@ -130,8 +139,12 @@ class ClientChatProtocol(asyncio.Protocol):
         self.on_con_lost.set_result(True)
 
     def set_receive_listener(self, listener: Callable[[UDPMessage], None]):
-        """Set an external listener for incoming chat messages."""
+        """Set an external listener for incoming UDP messages."""
         self.on_receive_message_listener = listener
+
+    def add_server_connected_listener(self, listener: Callable[[], None]) -> None:
+        """Add a callable to the set of connected listeners."""
+        self.server_connected_listeners.add(listener)
 
 
 async def ainput(string: str = None) -> str:

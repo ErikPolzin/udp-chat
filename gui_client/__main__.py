@@ -3,7 +3,8 @@ from typing import Optional
 from datetime import datetime
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QDockWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QSizePolicy
+from PyQt5.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QLabel, QPushButton
 
 from async_udp_client import ClientChatProtocol
 from async_udp_server import Address, UDPMessage, get_host_and_port
@@ -19,7 +20,32 @@ except ImportError:
 
 class ChatSidebar(QDockWidget):
     """Placeholder class."""
-    pass
+
+    def __init__(self, mwindow: 'MainWindow'):
+        """Initialize the chat sidebar."""
+        super().__init__()
+        self.content_widget = QWidget()
+        self.content_widget.setLayout(QVBoxLayout())
+        self.content_widget.layout().setContentsMargins(0, 0, 0, 0)
+        self.mwindow = mwindow
+        # Create a reconnect widget
+        self.reconnect_button = QPushButton("Reconnect")
+        self.reconnect_button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.reconnect_button.clicked.connect(self.onClickReconnect)
+        self.reconnect_widget = QWidget()
+        self.reconnect_widget.setStyleSheet("background-color: #7d1111")
+        self.reconnect_widget.setLayout(QVBoxLayout())
+        self.reconnect_widget.layout().addWidget(QLabel("Connection to server lost"))
+        self.reconnect_widget.layout().addWidget(self.reconnect_button)
+        # self.reconnect_widget.hide()
+        self.content_widget.layout().addWidget(self.reconnect_widget)
+        self.content_widget.layout().addStretch()
+        self.setWidget(self.content_widget)
+
+    def onClickReconnect(self):
+        """Try to reconnect when the user requests it."""
+        # Try to re-start the connection
+        asyncio.create_task(self.mwindow.create_client(self.mwindow.server_addr))
 
 
 class MainWindow(QMainWindow):
@@ -35,12 +61,17 @@ class MainWindow(QMainWindow):
     Sending messages: self.client.send_message(data | message)
     """
 
-    def __init__(self):
+    def __init__(self, server_addr: Address):
         """Initialize the UI."""
         super().__init__()
-        self.sidebar_widget = ChatSidebar()
+        self.server_addr = server_addr
+        self.first_connect = True
+
+        self.sidebar_widget = ChatSidebar(self)
         self.content_widget = QStackedWidget()
         self.canvas = ChatCanvas("default")
+        # Disable canvas input until connected to the server
+        self.canvas.input_cont.setDisabled(True)
         self.setCentralWidget(self.content_widget)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.sidebar_widget)
         self.setWindowTitle("UDP Chat Client")
@@ -62,17 +93,22 @@ class MainWindow(QMainWindow):
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
         self.client: ClientChatProtocol = await ClientChatProtocol.create(server_addr)
+        self.client.on_con_lost.add_done_callback(self.onLostConnection)
+        self.client.add_server_connected_listener(self.onCreatedConnection)
         print(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
         # Allow the GUI to receive messages from the client
         self.client.set_receive_listener(self.onReceiveMessage)
         # Allow the GUI to send messages to the client
         self.canvas.sendMessage.connect(self.client.send_message)
-        # Fetch the persisted messages
-        self.client.send_message({
-            "type": UDPMessage.MessageType.MSG_HST.value,
-            "group": "default",
-            "username": "root",
-        }, on_response=self.onReceiveHistoricalMessages)
+        # Only fetch messages if this is the first time connecting to the server
+        if self.first_connect:
+            # Fetch the persisted messages
+            self.client.send_message({
+                "type": UDPMessage.MessageType.MSG_HST.value,
+                "group": "default",
+                "username": "root",
+            }, on_response=self.onReceiveHistoricalMessages)
+            self.first_connect = False
 
     def onReceiveHistoricalMessages(self, resp: asyncio.Future):
         """Request historical messages from the server's database."""
@@ -86,12 +122,24 @@ class MainWindow(QMainWindow):
                     hmsg["Username"],
                     datetime.fromisoformat(hmsg["Date_Sent"]))
 
+    def onLostConnection(self, on_con_lost: asyncio.Future) -> None:
+        """Show the reconnect widget when the connection to the server is lost."""
+        self.sidebar_widget.reconnect_widget.show()
+        self.canvas.input_cont.setDisabled(True)
+
+    def onCreatedConnection(self) -> None:
+        """Hide the reconnect widget when the connection to the server is lost."""
+        # self.sidebar_widget.reconnect_widget.hide()
+        # Enable the input widget/send button when connected to the server
+        self.canvas.input_cont.setDisabled(False)
+
+
 
 if __name__ == "__main__":
     server_addr = get_host_and_port()
     app = QApplication([])
 
-    window = MainWindow()
+    window = MainWindow(server_addr)
     window.showMaximized()
 
     loop = QEventLoop(app)

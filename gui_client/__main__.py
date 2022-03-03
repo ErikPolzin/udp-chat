@@ -6,7 +6,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QDockWidget
 
 from async_udp_client import ClientChatProtocol
-from async_udp_server import Address, ChatMessage, get_host_and_port
+from async_udp_server import Address, UDPMessage, get_host_and_port
 import resources
 
 from .chat_canvas import ChatCanvas
@@ -47,9 +47,9 @@ class MainWindow(QMainWindow):
         self.client: Optional[ClientChatProtocol] = None
         self.content_widget.addWidget(self.canvas)
 
-    def onReceiveMessage(self, msg: ChatMessage):
+    def onReceiveMessage(self, msg: UDPMessage):
         """Client received a new message."""
-        if msg.type == ChatMessage.MessageType.CHT:
+        if msg.type == UDPMessage.MessageType.CHT:
             try:
                 text = msg.data["text"]
                 username = msg.data["username"]
@@ -69,7 +69,7 @@ class MainWindow(QMainWindow):
         self.canvas.sendMessage.connect(self.client.send_message)
         # Fetch the persisted messages
         self.client.send_message({
-            "type": ChatMessage.MessageType.MSG_HST.value,
+            "type": UDPMessage.MessageType.MSG_HST.value,
             "group": "default",
             "username": "root",
         }, on_response=self.onReceiveHistoricalMessages)
@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
         if resp.exception():
             print("Error retrieving historical messages.")
         else:
-            msg: ChatMessage = resp.result()
+            msg: UDPMessage = resp.result()
             for hmsg in msg.data.get("response", []):
                 self.canvas.addMessage(
                     hmsg["Text"],

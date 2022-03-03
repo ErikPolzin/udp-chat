@@ -4,7 +4,7 @@ from datetime import datetime
 import sys
 from typing import Callable, Dict, Optional
 
-from async_udp_server import ChatHeader, ChatMessage, Address, get_host_and_port
+from async_udp_server import UDPHeader, UDPMessage, Address, get_host_and_port
 from exceptions import RequestTimedOutException
 
 
@@ -34,7 +34,7 @@ class ClientChatProtocol(asyncio.Protocol):
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.future_responses: Dict[int, asyncio.Future] = {}
         self.bytes_sent: int = 0
-        self.on_receive_message_listener: Optional[Callable[[ChatMessage], None]] = None
+        self.on_receive_message_listener: Optional[Callable[[UDPMessage], None]] = None
 
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         """Connection made to the server.
@@ -44,7 +44,7 @@ class ClientChatProtocol(asyncio.Protocol):
         a new connection.
         """
         self.transport = transport
-        connect_msg = ChatMessage(ChatHeader(SEQN=0, ACK=False, SYN=True))
+        connect_msg = UDPMessage(UDPHeader(SEQN=0, ACK=False, SYN=True))
         self.send_message(msg=connect_msg, on_response=self.connected_to_server)
 
     def connected_to_server(self, response: asyncio.Future):
@@ -56,13 +56,13 @@ class ClientChatProtocol(asyncio.Protocol):
 
     def send_message(self,
                      data: Dict = None,
-                     msg: ChatMessage = None,
+                     msg: UDPMessage = None,
                      on_response: Callable = None) -> None:
         """Send a message to the server. Starts a timer to verify receipt."""
         if msg is None:
             if data is None:
                 raise ValueError("Must specify message or data to send")
-            msg = ChatMessage(ChatHeader(SEQN=self.bytes_sent, ACK=False, SYN=False), data=data)
+            msg = UDPMessage(UDPHeader(SEQN=self.bytes_sent, ACK=False, SYN=False), data=data)
         msg_bytes = msg.to_bytes()
         # Push the message onto the write buffer
         self.transport.sendto(msg_bytes)
@@ -83,7 +83,7 @@ class ClientChatProtocol(asyncio.Protocol):
         return future_response
 
     async def verify_message(
-            self, msg: ChatMessage, future_response: asyncio.Future, delay: float = 0.5):
+            self, msg: UDPMessage, future_response: asyncio.Future, delay: float = 0.5):
         """Asynchronously verify messages in the event loop."""
         total_delay = 0
         while total_delay < self.MAX_TIMEOUT:
@@ -101,7 +101,7 @@ class ClientChatProtocol(asyncio.Protocol):
 
     def datagram_received(self, data: bytes, addr: Address):
         """Received a datagram from the server."""
-        msg = ChatMessage.from_bytes(data)
+        msg = UDPMessage.from_bytes(data)
         # Received an ack, try stop the timer
         if msg.header.ACK:
             future_response = self.future_responses.get(msg.header.SEQN)
@@ -129,7 +129,7 @@ class ClientChatProtocol(asyncio.Protocol):
         print("Connection closed")
         self.on_con_lost.set_result(True)
 
-    def set_receive_listener(self, listener: Callable[[ChatMessage], None]):
+    def set_receive_listener(self, listener: Callable[[UDPMessage], None]):
         """Set an external listener for incoming chat messages."""
         self.on_receive_message_listener = listener
 
@@ -150,11 +150,11 @@ async def main(server_addr: Address):
         while True:
             text = await ainput()
             # Extract message type from input
-            mtype = ChatMessage.MessageType.CHT
+            mtype = UDPMessage.MessageType.CHT
             group = "default"
             if ":" in text:
                 mtype_txt, text = text.split(":")
-                mtype = ChatMessage.MessageType(mtype_txt)
+                mtype = UDPMessage.MessageType(mtype_txt)
             # Extract group name from input
             if "GRP=" in text:
                 text, group = text.split("GRP=")

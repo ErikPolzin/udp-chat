@@ -18,7 +18,7 @@ HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 Address = Tuple[str, int]
 
 
-class ChatHeader(NamedTuple):
+class UDPHeader(NamedTuple):
     """Additional UDP packet data, stored in binary."""
 
     SEQN: int = 0
@@ -27,16 +27,16 @@ class ChatHeader(NamedTuple):
     FIN: bool = False
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> 'ChatHeader':
+    def from_bytes(cls, data: bytes) -> 'UDPHeader':
         """Create a UDP Header from bytes."""
-        return ChatHeader._make(HEADER_STRUCT.unpack(data[:HEADER_SIZE]))
+        return UDPHeader._make(HEADER_STRUCT.unpack(data[:HEADER_SIZE]))
 
     def to_bytes(self) -> bytes:
         """Serialize a UDP header."""
         return HEADER_STRUCT.pack(*self)
 
 
-class ChatMessage(object):
+class UDPMessage(object):
     """Represents a message sent to the server, originally as a UDP packet."""
 
     class MessageType(Enum):
@@ -47,11 +47,11 @@ class ChatMessage(object):
         GRP_ADD = "GRP_ADD"  # Request to create a new group
         MSG_HST = "MSG_HST"
 
-    def __init__(self, header: ChatHeader, data: Optional[dict] = None):
+    def __init__(self, header: UDPHeader, data: Optional[dict] = None):
         """Initialize a chat message from header and data."""
         self.header = header
         self.data = data
-        self.type: Optional[ChatMessage.MessageType] = None
+        self.type: Optional[UDPMessage.MessageType] = None
         if self.data and "type" in data:
             try:
                 self.type = self.MessageType(self.data["type"])
@@ -61,27 +61,27 @@ class ChatMessage(object):
     def __str__(self) -> str:
         """Stringify a chat message."""
         if self.header.ACK:
-            return f"<ChatMessage {self.header.SEQN}: ACK>"
+            return f"<UDPMessage {self.header.SEQN}: ACK>"
         if self.header.SYN:
-            return f"<ChatMessage {self.header.SEQN}: SYN>"
+            return f"<UDPMessage {self.header.SEQN}: SYN>"
         if self.header.FIN:
-            return f"<ChatMessage {self.header.SEQN}: FIN>"
+            return f"<UDPMessage {self.header.SEQN}: FIN>"
         if self.data and self.type:
             grp = self.data.get("group", "default")
-            if self.type == ChatMessage.MessageType.CHT:
-                return f"<ChatMessage {self.header.SEQN}: '{self.data.get('text')}', grp={grp}>"
-            if self.type == ChatMessage.MessageType.GRP_SUB:
-                return f"<ChatMessage {self.header.SEQN}: GRP_SUB grp={grp}>"
-            if self.type == ChatMessage.MessageType.GRP_ADD:
-                return f"<ChatMessage {self.header.SEQN}: GRP_ADD grp={grp}>"
-        return f"<ChatMessage {self.header.SEQN}: EMPTY>"
+            if self.type == UDPMessage.MessageType.CHT:
+                return f"<UDPMessage {self.header.SEQN}: '{self.data.get('text')}', grp={grp}>"
+            if self.type == UDPMessage.MessageType.GRP_SUB:
+                return f"<UDPMessage {self.header.SEQN}: GRP_SUB grp={grp}>"
+            if self.type == UDPMessage.MessageType.GRP_ADD:
+                return f"<UDPMessage {self.header.SEQN}: GRP_ADD grp={grp}>"
+        return f"<UDPMessage {self.header.SEQN}: EMPTY>"
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> 'ChatMessage':
+    def from_bytes(cls, data: bytes) -> 'UDPMessage':
         """Initialize from a UDP packet."""
-        header = ChatHeader.from_bytes(data)
+        header = UDPHeader.from_bytes(data)
         mdata = json.loads(data[HEADER_SIZE:]) if data[HEADER_SIZE:] else None
-        return ChatMessage(header, mdata)
+        return UDPMessage(header, mdata)
 
     def to_bytes(self) -> bytes:
         """Serialize a chat message."""
@@ -110,7 +110,7 @@ class InMemoryGroupLayer(Dict[str, Set[Address]]):
         self.setdefault(group, set()).add(addr)
         print(f"Subscribe {addr[0]}:{addr[1]} to group '{group}'")
 
-    def group_send(self, group: str, msg: ChatMessage) -> None:
+    def group_send(self, group: str, msg: UDPMessage) -> None:
         """Send a message to all addresses in a group."""
         print(f"Send {msg} to group '{group}'")
         for addr in self.get(group, set()):
@@ -152,13 +152,13 @@ class ServerChatProtocol(asyncio.Protocol):
         """Received a datagram from the chat's socket."""
         if self.transport is None:
             return
-        msg = ChatMessage.from_bytes(data)
+        msg = UDPMessage.from_bytes(data)
         if msg.header.SYN:
             self.client_connection_made(addr)
         if msg.header.FIN:
             self.client_connection_terminated(addr)
         print('Received %s from %s' % (msg, addr))
-        ack_msg = ChatMessage(ChatHeader(msg.header.SEQN, ACK=True, SYN=False), {})
+        ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True, SYN=False), {})
         # Determine the message type and process accordingly
         if msg.data and msg.type:
             status, data, error = self.message_received(msg, addr)
@@ -169,14 +169,14 @@ class ServerChatProtocol(asyncio.Protocol):
         self.transport.sendto(ack_msg.to_bytes(), addr)
 
     def message_received(
-            self, msg: ChatMessage, addr: Address
+            self, msg: UDPMessage, addr: Address
         ) -> Tuple[int, Optional[Union[List, Dict]], Optional[str]]:
         """Received a message with an associated type. Usually called after datagram_received()."""
         mtype = msg.type
         group_name = msg.data.get("group", "default")
         user_name = msg.data.get("username", "root")
         # Message is a chat message, send it to the associated group
-        if mtype == ChatMessage.MessageType.CHT:
+        if mtype == UDPMessage.MessageType.CHT:
             text = msg.data.get("text")
             try:
                 self.db_controller.new_message(group_name, user_name, text)
@@ -185,7 +185,7 @@ class ServerChatProtocol(asyncio.Protocol):
             self.group_layer.group_send(group_name, msg)
             return 200, None, None
         # Message is a group add, try create a new group
-        elif mtype == ChatMessage.MessageType.GRP_ADD:
+        elif mtype == UDPMessage.MessageType.GRP_ADD:
             try:
                 self.db_controller.new_group(group_name, user_name)
                 self.group_layer.group_add(group_name, addr)
@@ -195,13 +195,13 @@ class ServerChatProtocol(asyncio.Protocol):
             except Exception as e:
                 return 500, None, f"Unable to create group: {e}"
         # Message is a group subscription, try sub to group
-        elif mtype == ChatMessage.MessageType.GRP_SUB:
+        elif mtype == UDPMessage.MessageType.GRP_SUB:
             try:
                 self.group_layer.group_sub(group_name, addr)
                 return 200, None, None
             except ItemNotFoundException:
                 return 400, None, "Group with this name already exists"
-        elif mtype == ChatMessage.MessageType.MSG_HST:
+        elif mtype == UDPMessage.MessageType.MSG_HST:
             message_history = self.db_controller.message_history(group_name)
             # Message dates have to be converted to strings for JSON
             [m.update({"Date_Sent": m["Date_Sent"].isoformat()}) for m in message_history]

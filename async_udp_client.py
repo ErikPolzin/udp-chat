@@ -77,6 +77,9 @@ class ClientChatProtocol(asyncio.Protocol):
         # Verify the message:
         # 1. Create a future response to set when the verification succeeds
         future_response = asyncio.get_event_loop().create_future()
+        # A bit cheeky: set the request message as an attribute on the response,
+        # so the response handler can access the original request.
+        future_response.request = msg
         verify_coroutine = self.verify_message(msg, future_response)
         # Start the verification task
         verify_task = asyncio.create_task(verify_coroutine)
@@ -85,7 +88,7 @@ class ClientChatProtocol(asyncio.Protocol):
         # Add an optional user-specified response callback
         if on_response:
             future_response.add_done_callback(on_response)
-        self.future_responses[self.bytes_sent] = future_response
+        self.future_responses[msg.header.SEQN] = future_response
         self.bytes_sent += len(msg_bytes)
         # Allows await send_message()
         return future_response

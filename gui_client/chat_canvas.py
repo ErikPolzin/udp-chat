@@ -1,8 +1,15 @@
+from datetime import datetime
+from typing import TYPE_CHECKING, Dict, Optional, Any
+
 from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton
 from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QIcon
-from datetime import datetime
+
+if TYPE_CHECKING:
+    from .main_window import MainWindow
+else:
+    MainWindow = Any
 
 
 class ChatCanvas(QFrame):
@@ -29,8 +36,9 @@ class ChatCanvas(QFrame):
         FOOTER_SS = "color: #444444; font-size: 13px"
         TEXT_SS = "color: black; font-size: 14px"
 
-        def __init__(self, text: str, username: str, time_sent: datetime):
+        def __init__(self, seq_id: int, text: str, username: str, time_sent: datetime):
             """Initialize a message from message data."""
+            self.seq_id = seq_id
             self.text = text
             self.username = username
             self.time_sent = time_sent
@@ -48,12 +56,14 @@ class ChatCanvas(QFrame):
             self.text_label = QLabel(self.text)
             self.text_label.setStyleSheet(self.TEXT_SS)
             self.time_label = QLabel(self.time_sent.strftime("%-I:%S %p"))
+            self.ack_label = QLabel("o")
             footer = QWidget()
             footer.setStyleSheet(self.FOOTER_SS)
             footer_layout = QHBoxLayout(footer)
             footer_layout.setContentsMargins(0, 0, 0, 0)
             footer_layout.addStretch()
             footer_layout.addWidget(self.time_label)
+            footer_layout.addWidget(self.ack_label)
             layout = QVBoxLayout(self)
             layout.addWidget(self.username_label)
             layout.addWidget(self.text_label)
@@ -64,11 +74,18 @@ class ChatCanvas(QFrame):
             if pmsg.username == self.username:
                 self.username_label.setParent(None)
 
+        def acknowledge(self):
+            """Acknowledge (=double-tick) a message."""
+            self.ack_label.setText("oo")
+
     
-    def __init__(self, group_name: str):
+    def __init__(self, group_name: str, mwindow: MainWindow):
         """Initialize for a given group."""
         super().__init__()
         self.group_name = group_name
+        self.mwindow = mwindow
+        
+        self.unacknowledged_messages: Dict[int, ChatCanvas.MessageWidget] = {}
 
         self.text_input = QLineEdit()
         self.text_input.returnPressed.connect(self.onReturnPressed)
@@ -84,6 +101,8 @@ class ChatCanvas(QFrame):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.addWidget(self.text_input)
         input_layout.addWidget(self.text_submit)
+        # Disable canvas input until connected to the server
+        self.input_cont.setDisabled(True)
 
         self.setLayout(QVBoxLayout())
         self.scroll_widget = QScrollArea()
@@ -102,24 +121,43 @@ class ChatCanvas(QFrame):
         self.layout().addWidget(self.scroll_widget, stretch=2)
         self.layout().addWidget(self.input_cont)
         
-    def addMessage(self, text: str, username: str, time_sent: datetime) -> None:
+    def addMessage(self, 
+                   seq_id: int,
+                   text: str,
+                   username: str,
+                   date_sent: datetime,
+                   ack: bool = False
+                   ) -> MessageWidget:
         """Add a message to the canvas."""
-        widget = self.MessageWidget(text, username, time_sent)
+        if seq_id in self.unacknowledged_messages:
+            unack_msg = self.unacknowledged_messages[seq_id]
+            unack_msg.acknowledge()
+            return unack_msg
+        widget = self.MessageWidget(seq_id, text, username, date_sent)
         insert_index = self.view_layout.count()
         self.view_layout.insertWidget(insert_index, widget)
         prev_msg = self.view_layout.itemAt(insert_index-1).widget()
         if prev_msg:
             widget.setPreviousMessage(prev_msg)
+        if ack:
+            widget.acknowledge()
+        return widget
 
-    def onReturnPressed(self):
+    def onReturnPressed(self) -> None:
         """Enter pressed, send the current message."""
-        msgdata = {
+        txt = self.text_input.text()
+        now = datetime.now()
+        uname = "root"
+        seq_id = self.mwindow.client.bytes_sent
+        # Add a message to the canvas - it will be verified once the server replies
+        msg = self.addMessage(seq_id, txt, uname, now)
+        self.unacknowledged_messages[seq_id] = msg
+        self.sendMessage.emit({
             "type": "CHT",
-            "text": self.text_input.text(),
+            "text": txt,
             "group": self.group_name,
-            "time_sent": datetime.now().isoformat(),
-            "username": "root"
-        }
-        self.sendMessage.emit(msgdata)
+            "time_sent": now.isoformat(),
+            "username": uname
+        })
         self.text_input.clear()
 

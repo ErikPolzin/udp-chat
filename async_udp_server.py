@@ -181,7 +181,7 @@ class ServerChatProtocol(asyncio.Protocol):
             try:
                 self.db_controller.new_message(group_name, user_name, text)
             except Exception as e:
-                return 500, None, "Unable to save message: {e}"
+                return 500, None, f"Unable to save message: {e}"
             self.group_layer.group_send(group_name, msg)
             return 200, None, None
         # Message is a group add, try create a new group

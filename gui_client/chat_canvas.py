@@ -3,8 +3,8 @@ from typing import TYPE_CHECKING, Dict, Optional, Any
 
 from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton
 from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtGui import QIcon, QPixmap
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -20,6 +20,14 @@ class ChatCanvas(QFrame):
         background-color: #444444;
         border-radius: 5px;
         padding: 10px;
+    """
+    HEADER_SS = """
+        background-color: #0b2e6e;
+        padding: 10px 15px;
+    """
+    TITLE_SS = """
+        font-weight: bold;
+        font-size: 20px;
     """
 
     class MessageWidget(QFrame):
@@ -42,6 +50,8 @@ class ChatCanvas(QFrame):
             self.text = text
             self.username = username
             self.time_sent = time_sent
+            self.CHECK_SINGLE = QPixmap(":/check.png").scaledToHeight(12, Qt.SmoothTransformation)
+            self.CHECK_DOUBLE = QPixmap(":/check-all.png").scaledToHeight(12, Qt.SmoothTransformation)
             super().__init__()
             self.setAutoFillBackground(True)
             self.setObjectName("message")
@@ -56,7 +66,8 @@ class ChatCanvas(QFrame):
             self.text_label = QLabel(self.text)
             self.text_label.setStyleSheet(self.TEXT_SS)
             self.time_label = QLabel(self.time_sent.strftime("%-I:%S %p"))
-            self.ack_label = QLabel("o")
+            self.ack_label = QLabel()
+            self.ack_label.setPixmap(self.CHECK_SINGLE)
             footer = QWidget()
             footer.setStyleSheet(self.FOOTER_SS)
             footer_layout = QHBoxLayout(footer)
@@ -76,7 +87,7 @@ class ChatCanvas(QFrame):
 
         def acknowledge(self):
             """Acknowledge (=double-tick) a message."""
-            self.ack_label.setText("oo")
+            self.ack_label.setPixmap(self.CHECK_DOUBLE)
 
     
     def __init__(self, group_name: str, mwindow: MainWindow):
@@ -86,6 +97,14 @@ class ChatCanvas(QFrame):
         self.mwindow = mwindow
         
         self.unacknowledged_messages: Dict[int, ChatCanvas.MessageWidget] = {}
+
+        self.group_header = QFrame()
+        header_layout = QVBoxLayout(self.group_header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        self.group_title = QLabel(group_name)
+        self.group_title.setStyleSheet(self.TITLE_SS)
+        header_layout.addWidget(self.group_title)
+        self.group_header.setStyleSheet(self.HEADER_SS)
 
         self.text_input = QLineEdit()
         self.text_input.returnPressed.connect(self.onReturnPressed)
@@ -118,6 +137,7 @@ class ChatCanvas(QFrame):
         self.view_layout.addStretch()
         self.scroll_widget.setWidgetResizable(True)
         self.scroll_widget.setWidget(self.viewport_widget)
+        self.layout().addWidget(self.group_header)
         self.layout().addWidget(self.scroll_widget, stretch=2)
         self.layout().addWidget(self.input_cont)
         

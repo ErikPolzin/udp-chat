@@ -2,5 +2,7 @@
 <qresource>
     <file>background.jpeg</file>
     <file>send.png</file>
+    <file>check.png</file>
+    <file>check-all.png</file>
 </qresource>
 </RCC>

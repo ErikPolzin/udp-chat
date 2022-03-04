@@ -1,7 +1,6 @@
 import asyncio
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
-from functools import partial
 from queue import Queue
 
 from PyQt5.QtCore import Qt
@@ -37,14 +36,16 @@ class MainWindow(QMainWindow):
 
         self.sidebar_widget = ChatSidebar(self)
         self.content_widget = QStackedWidget()
-        self.canvas = ChatCanvas("default", self)
-        # Disable canvas input until connected to the server
-        self.canvas.input_cont.setDisabled(True)
+        self.content_widget.setContentsMargins(0, 0, 0, 0)
+        initial_window = ChatCanvas("default", self)
+        # Allow the window to send messages
+        initial_window.sendMessage.connect(self.sendMessage)
+        # Start off with just the 'default' group
         self.setCentralWidget(self.content_widget)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.sidebar_widget)
         self.setWindowTitle("UDP Chat Client")
         self.client: Optional[ClientChatProtocol] = None
-        self.content_widget.addWidget(self.canvas)
+        self.content_widget.addWidget(initial_window)
 
     def onReceiveMessage(self, msg: UDPMessage):
         """Client received a new message."""
@@ -56,7 +57,9 @@ class MainWindow(QMainWindow):
             except KeyError as k:
                 print(f"Received improperly formatted message (missing '{k}'")
                 return
-            self.canvas.addMessage(msg.header.SEQN, text, username, time_sent, ack=True)
+            w = self.getChatWindow(msg.data.get("group"))
+            if w:
+                w.addMessage(msg.header.SEQN, text, username, time_sent, ack=True)
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
@@ -66,9 +69,6 @@ class MainWindow(QMainWindow):
         print(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
         # Allow the GUI to receive messages from the client
         self.client.set_receive_listener(self.onReceiveMessage)
-        # Allow the GUI to send messages to the client
-        self.canvas.sendMessage.connect(
-            partial(self.client.send_message, on_response=self.onSendMessage))
         # Only fetch messages if this is the first time connecting to the server
         if self.first_connect:
             # Fetch the persisted messages
@@ -83,30 +83,49 @@ class MainWindow(QMainWindow):
         """Re-establish the connection to the server."""
         asyncio.create_task(self.create_client(self.server_addr))
 
+    def sendMessage(self, data):
+        """A chat window has requested to send a message."""
+        self.client.send_message(data, on_response=self.onSendMessage)
+
+    def chatWindows(self) -> List[ChatCanvas]:
+        """List all the chat windows."""
+        windows = []
+        for i in range(self.content_widget.count()):
+            windows.append(self.content_widget.widget(i))
+        return windows
+
+    def getChatWindow(self, group_name: str) -> Optional[ChatCanvas]:
+        """Get the chat window for a specific group."""
+        for window in self.chatWindows():
+            if window.group_name == group_name:
+                return window
+
     def onReceiveHistoricalMessages(self, resp: asyncio.Future):
         """Request historical messages from the server's database."""
         if resp.exception():
             print("Error retrieving historical messages.")
         else:
-            msg: UDPMessage = resp.result()
-            for hmsg in msg.data.get("response", []):
-                self.canvas.addMessage(
-                    None,
-                    hmsg["Text"],
-                    hmsg["Username"],
-                    datetime.fromisoformat(hmsg["Date_Sent"]),
-                    ack=True)
+            group_name = resp.request.data.get("group")
+            window = self.getChatWindow(group_name)
+            if window:
+                msg: UDPMessage = resp.result()
+                for hmsg in msg.data.get("response", []):
+                    timesent = datetime.fromisoformat(hmsg["Date_Sent"])
+                    window.addMessage(
+                        None, hmsg["Text"], hmsg["Username"], timesent, ack=True)
 
     def onLostConnection(self, on_con_lost: asyncio.Future) -> None:
         """Show the reconnect widget when the connection to the server is lost."""
         self.sidebar_widget.reconnect_widget.show()
-        self.canvas.input_cont.setDisabled(True)
+        for w in self.chatWindows():
+            w.input_cont.setDisabled(True)
 
     def onCreatedConnection(self) -> None:
         """Hide the reconnect widget when the connection to the server is lost."""
         self.sidebar_widget.reconnect_widget.hide()
         # Enable the input widget/send button when connected to the server
-        self.canvas.input_cont.setDisabled(False)
+        for w in self.chatWindows():
+            w.input_cont.setDisabled(False)
         # Try to clear the message backlog
         print(f"{self.message_backlog.qsize()} message(s) in backlog.")
         while not self.message_backlog.empty():

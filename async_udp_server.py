@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, NamedTuple, Union
 from exceptions import ItemAlreadyExistsException, ItemNotFoundException
 
-from chat_database_controller import DatabaseController
+from chat_database_controller_sqlite3 import DatabaseController
 
 # Constants
 HEADER_FORMAT: str = "!i???"
@@ -45,7 +45,9 @@ class UDPMessage(object):
         CHT = "CHT"  # Chat message
         GRP_SUB = "GRP_SUB"  # Request to subscribe to an existing group
         GRP_ADD = "GRP_ADD"  # Request to create a new group
-        MSG_HST = "MSG_HST"
+        MSG_HST = "MSG_HST" #Request message history for group
+        USR_LOGIN = "USR_LOGIN" #Request to veryify user credentials
+        USR_ADD = "USR_ADD" #Request to create a new user
 
     def __init__(self, header: UDPHeader, data: Optional[dict] = None):
         """Initialize a chat message from header and data."""
@@ -175,6 +177,7 @@ class ServerChatProtocol(asyncio.Protocol):
         mtype = msg.type
         group_name = msg.data.get("group", "default")
         user_name = msg.data.get("username", "root")
+        password = msg.data.get("password", "default")
         # Message is a chat message, send it to the associated group
         if mtype == UDPMessage.MessageType.CHT:
             text = msg.data.get("text")
@@ -206,6 +209,15 @@ class ServerChatProtocol(asyncio.Protocol):
             # Message dates have to be converted to strings for JSON
             [m.update({"Date_Sent": m["Date_Sent"].isoformat()}) for m in message_history]
             return 200, message_history, None
+        elif mtype == UDPMessage.MessageType.USR_LOGIN:
+            try:
+                user_id = self.db_controller.user_login(user_name, password)
+                return 200, user_id, None
+            except ItemNotFoundException:
+                return 400, None, "Invalid acccount details"
+        elif mtype == UDPMessage.MessageType.USR_ADD:
+            user_id = self.db_controller.new_user(user_name, password, addr)
+            return 200, user_id, None
         else:
             return 400, None, f"Unrecognised message type '{mtype}'"
 

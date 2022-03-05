@@ -139,7 +139,7 @@ class ServerChatProtocol(asyncio.Protocol):
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         """Created a connection to the local socket."""
         self.transport = transport
-        self.db_controller = DatabaseController("udpchat", "root")
+        self.db_controller = DatabaseController()
         self.group_layer = InMemoryGroupLayer(transport)
 
     def client_connection_made(self, addr: Address) -> None:
@@ -205,9 +205,7 @@ class ServerChatProtocol(asyncio.Protocol):
             except ItemNotFoundException:
                 return 400, None, "Group with this name already exists"
         elif mtype == UDPMessage.MessageType.MSG_HST:
-            message_history = self.db_controller.message_history(group_name)
-            # Message dates have to be converted to strings for JSON
-            [m.update({"Date_Sent": m["Date_Sent"].isoformat()}) for m in message_history]
+            message_history = list(self.db_controller.message_history(group_name))
             return 200, message_history, None
         elif mtype == UDPMessage.MessageType.USR_LOGIN:
             try:

@@ -45,6 +45,7 @@ class UDPMessage(object):
         CHT = "CHT"  # Chat message
         GRP_SUB = "GRP_SUB"  # Request to subscribe to an existing group
         GRP_ADD = "GRP_ADD"  # Request to create a new group
+        GRP_HST = "GRP_HST"  # Request group history
         MSG_HST = "MSG_HST" #Request message history for group
         USR_LOGIN = "USR_LOGIN" #Request to veryify user credentials
         USR_ADD = "USR_ADD" #Request to create a new user
@@ -69,14 +70,8 @@ class UDPMessage(object):
         if self.header.FIN:
             return f"<UDPMessage {self.header.SEQN}: FIN>"
         if self.data and self.type:
-            grp = self.data.get("group", "default")
-            if self.type == UDPMessage.MessageType.CHT:
-                return f"<UDPMessage {self.header.SEQN}: '{self.data.get('text')}', grp={grp}>"
-            if self.type == UDPMessage.MessageType.GRP_SUB:
-                return f"<UDPMessage {self.header.SEQN}: GRP_SUB grp={grp}>"
-            if self.type == UDPMessage.MessageType.GRP_ADD:
-                return f"<UDPMessage {self.header.SEQN}: GRP_ADD grp={grp}>"
-        return f"<UDPMessage {self.header.SEQN}: EMPTY>"
+            return f"<UDPMessage {self.header.SEQN}: {self.type} grp={self.data.get('group')}>"
+        return f"<UDPMessage {self.header.SEQN}: {self.type}, data={self.data}>"
 
     @classmethod
     def from_bytes(cls, data: bytes) -> 'UDPMessage':
@@ -192,11 +187,15 @@ class ServerChatProtocol(asyncio.Protocol):
             try:
                 self.db_controller.new_group(group_name, user_name)
                 self.group_layer.group_add(group_name, addr)
-                return 200, None, None
+                logging.info(f"Created new group '{group_name}'")
+                return 200, {"group": group_name}, None
             except ItemAlreadyExistsException:
                 return 400, None, "Group with this name already exists"
             except Exception as e:
                 return 500, None, f"Unable to create group: {e}"
+        elif mtype == UDPMessage.MessageType.GRP_HST:
+            group_history = list(self.db_controller.group_history(user_name))
+            return 200, group_history, None
         # Message is a group subscription, try sub to group
         elif mtype == UDPMessage.MessageType.GRP_SUB:
             try:
@@ -231,6 +230,7 @@ def get_host_and_port() -> Address:
     return (host, port)
 
 async def main():
+    logging.basicConfig(level=logging.DEBUG)
     host, port = get_host_and_port()
     logging.info(f"Starting UDP server at {host}:{port}...")
 

@@ -4,5 +4,6 @@
     <file>send.png</file>
     <file>check.png</file>
     <file>check-all.png</file>
+    <file>add-group.png</file>
 </qresource>
 </RCC>

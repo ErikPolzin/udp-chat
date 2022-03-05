@@ -131,11 +131,11 @@ class ClientChatProtocol(asyncio.Protocol):
             return
         if self.on_receive_message_listener is not None:
             self.on_receive_message_listener(msg)
-        logging.debug("Received:", msg)
+        logging.debug("Received: %s" % msg)
 
     def error_received(self, exc):
         """Received an error from the server."""
-        logging.error('Error received:', exc)
+        logging.error('Error received: %s' % exc)
 
     def connection_lost(self, exc):
         """Connection to server lost."""

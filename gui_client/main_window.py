@@ -35,18 +35,18 @@ class MainWindow(QMainWindow):
         self.message_backlog: Queue[UDPMessage] = Queue()
         self.first_connect = True
 
-        self.sidebar_widget = ChatSidebar(self)
         self.content_widget = QStackedWidget()
         self.content_widget.setContentsMargins(0, 0, 0, 0)
+        self.sidebar_widget = ChatSidebar("root", self)
         initial_window = ChatCanvas("default", self)
-        # Allow the window to send messages
-        initial_window.sendMessage.connect(self.sendMessage)
         # Start off with just the 'default' group
         self.setCentralWidget(self.content_widget)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.sidebar_widget)
         self.setWindowTitle("UDP Chat Client")
         self.client: Optional[ClientChatProtocol] = None
         self.content_widget.addWidget(initial_window)
+        tab = self.sidebar_widget.addChatWindow(initial_window)
+        self.sidebar_widget.setActiveTab(tab, initial_window)
 
     def onReceiveMessage(self, msg: UDPMessage):
         """Client received a new message."""
@@ -72,12 +72,7 @@ class MainWindow(QMainWindow):
         self.client.set_receive_listener(self.onReceiveMessage)
         # Only fetch messages if this is the first time connecting to the server
         if self.first_connect:
-            # Fetch the persisted messages
-            self.client.send_message({
-                "type": UDPMessage.MessageType.MSG_HST.value,
-                "group": "default",
-                "username": "root",
-            }, on_response=self.onReceiveHistoricalMessages)
+            self.fetchGroups()
             self.first_connect = False
 
     def reconnect(self):
@@ -100,20 +95,6 @@ class MainWindow(QMainWindow):
         for window in self.chatWindows():
             if window.group_name == group_name:
                 return window
-
-    def onReceiveHistoricalMessages(self, resp: asyncio.Future):
-        """Request historical messages from the server's database."""
-        if resp.exception():
-            logging.error("Error retrieving historical messages.")
-        else:
-            group_name = resp.request.data.get("group")
-            window = self.getChatWindow(group_name)
-            if window:
-                msg: UDPMessage = resp.result()
-                for hmsg in msg.data.get("response", []):
-                    timesent = datetime.fromisoformat(hmsg["Date_Sent"])
-                    window.addMessage(
-                        None, hmsg["Text"], hmsg["Username"], timesent, ack=True)
 
     def onLostConnection(self, on_con_lost: asyncio.Future) -> None:
         """Show the reconnect widget when the connection to the server is lost."""
@@ -140,3 +121,27 @@ class MainWindow(QMainWindow):
             if msg.type == UDPMessage.MessageType.CHT:
                 logging.debug("Added message to backlog")
                 self.message_backlog.put(msg)
+
+    def fetchGroups(self):
+        """Fetch all groups that this user is part of."""
+        # Fetch the persisted messages
+        self.client.send_message({
+            "type": UDPMessage.MessageType.GRP_HST.value,
+            "group": "default",
+            "username": "root",
+        }, on_response=self.onFetchedGroups)
+
+    def onFetchedGroups(self, resp: asyncio.Future):
+        """Request historical messages from the server's database."""
+        if resp.exception():
+            wlab = self.sidebar_widget.group_warning_label
+            wlab.show()
+            wlab.setText("Error retrieving groups.")
+        else:
+            msg: UDPMessage = resp.result()
+            for g in msg.data.get("response", []):
+                window = ChatCanvas(g["Name"], self)
+                self.content_widget.addWidget(window)
+                self.sidebar_widget.addChatWindow(window)
+            for w in self.chatWindows():
+                w.retrieveHistoricalMessages()

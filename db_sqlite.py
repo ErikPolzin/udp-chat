@@ -62,7 +62,7 @@ class DatabaseController():
             room_id = self.get_room_id_by_name(con, group_name)
             user_id = self.get_user_id_by_name(con, user_name)
             cursor = self.execute_query(
-                con, create_msg, [(room_id, user_id, text, datetime.now())])
+                con, create_msg, (room_id, user_id, text, datetime.now()))
             m_id = cursor.lastrowid
             logging.debug(f"Saved message {m_id}")
 
@@ -70,11 +70,12 @@ class DatabaseController():
         """Create a new group row."""
         create_room = "INSERT INTO Room (Name, Password, Date_Created) VALUES (?, ?, ?);"
         with self.connection() as con:
+            user_id = None
             if user_name:
                 user_id = self.get_user_id_by_name(con, user_name)
-            cur = self.execute_query(con, create_room, [(group_name, group_password, datetime.now())])
+            cur = self.execute_query(con, create_room, (group_name, group_password, datetime.now()))
             group_id = cur.lastrowid
-            if user_name:
+            if group_id is not None and user_id is not None:
                 self.new_member(user_id, group_id)
             return group_id
 
@@ -82,14 +83,14 @@ class DatabaseController():
         """Create a new member row."""
         query = "INSERT INTO Member (UserID, RoomID) VALUES (?, ?);"
         with self.connection() as con:
-            cur = self.execute_query(con, query, [(user_id, group_id)])
+            cur = self.execute_query(con, query, (user_id, group_id))
             return cur.lastrowid
 
     def new_user(self, user_name: str, password: str, address: str) -> int:
         """Create a new user row."""
         query = "INSERT INTO User (Address, Username, Password) VALUES (?, ?, ?);"
         with self.connection() as con:
-            cur = self.execute_query(con, query, [(address, user_name, password)])
+            cur = self.execute_query(con, query, (address, user_name, password))
             return cur.lastrowid
 
     def user_login(self, user_name: str, password: str) -> int:
@@ -114,6 +115,21 @@ class DatabaseController():
                     "Date_Sent": r[2],
                 }
 
+    def group_history(self, user_name: str) -> Dict:
+        """Return message history as a list of dictionaries."""
+        with self.connection() as con:
+            user_id = self.get_user_id_by_name(con, user_name)
+            query = """
+            SELECT Room.Name, datetime(Room.Date_Created)
+            FROM Room INNER JOIN Member
+            ON Room.RoomID = Member.RoomID
+            WHERE Member.UserID = ? AND Room.Name != 'default';"""
+            for r in self.read_query(con, query, (user_id,)):
+                yield {
+                    "Name": r[0],
+                    "Date_Created": r[1],
+                }
+
     def group_names(self) -> List[str]:
         """Return all group names."""
         query = "SELECT Name FROM Room;"
@@ -134,7 +150,7 @@ class DatabaseController():
         """Execute and commit a query to the database."""
         cursor: sqlite3.Cursor = c.cursor()
         if values is not None:
-            cursor.executemany(query, values)
+            cursor.execute(query, values)
         else:
             cursor.execute(query)
         c.commit()

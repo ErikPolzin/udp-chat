@@ -1,10 +1,14 @@
+import asyncio
 from datetime import datetime
+import logging
 from typing import TYPE_CHECKING, Dict, Optional, Any
 
 from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton
 from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QIcon, QPixmap
+
+from async_udp_server import UDPMessage
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -16,6 +20,8 @@ class ChatCanvas(QFrame):
     """The chat canvas displays chat messages for a particular group."""
 
     sendMessage = pyqtSignal(dict)
+    blurbChanged = pyqtSignal(str)
+
     INPUT_STYLESHEET = """
         background-color: #444444;
         border-radius: 5px;
@@ -50,6 +56,7 @@ class ChatCanvas(QFrame):
             self.text = text
             self.username = username
             self.time_sent = time_sent
+            self.blurb = "No messages yet"
             self.CHECK_SINGLE = QPixmap(":/check.png").scaledToHeight(12, Qt.SmoothTransformation)
             self.CHECK_DOUBLE = QPixmap(":/check-all.png").scaledToHeight(12, Qt.SmoothTransformation)
             super().__init__()
@@ -120,8 +127,6 @@ class ChatCanvas(QFrame):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.addWidget(self.text_input)
         input_layout.addWidget(self.text_submit)
-        # Disable canvas input until connected to the server
-        self.input_cont.setDisabled(True)
 
         self.setLayout(QVBoxLayout())
         self.scroll_widget = QScrollArea()
@@ -161,6 +166,9 @@ class ChatCanvas(QFrame):
             widget.setPreviousMessage(prev_msg)
         if ack:
             widget.acknowledge()
+        # Change the vlurb and notify listeners
+        self.blurb = text
+        self.blurbChanged.emit(self.blurb)
         return widget
 
     def onReturnPressed(self) -> None:
@@ -180,4 +188,24 @@ class ChatCanvas(QFrame):
             "username": uname
         })
         self.text_input.clear()
+
+    def retrieveHistoricalMessages(self):
+        """Retrieve historical messages from the server."""
+        # Fetch the persisted messages
+        self.mwindow.client.send_message({
+            "type": UDPMessage.MessageType.MSG_HST.value,
+            "group": self.group_name,
+            "username": "root",
+        }, on_response=self.onReceiveHistoricalMessages)
+
+    def onReceiveHistoricalMessages(self, resp: asyncio.Future):
+        """Request historical messages from the server's database."""
+        if resp.exception():
+            logging.error("Error retrieving historical messages.")
+        else:
+            msg: UDPMessage = resp.result()
+            for hmsg in msg.data.get("response", []):
+                timesent = datetime.fromisoformat(hmsg["Date_Sent"])
+                self.addMessage(
+                    None, hmsg["Text"], hmsg["Username"], timesent, ack=True)
 

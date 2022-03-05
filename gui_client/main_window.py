@@ -2,6 +2,7 @@ import asyncio
 from typing import List, Optional
 from datetime import datetime
 from queue import Queue
+import logging
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMainWindow, QStackedWidget
@@ -55,7 +56,7 @@ class MainWindow(QMainWindow):
                 username = msg.data["username"]
                 time_sent = datetime.fromisoformat(msg.data["time_sent"])
             except KeyError as k:
-                print(f"Received improperly formatted message (missing '{k}'")
+                logging.warning(f"Received improperly formatted message (missing '{k}'")
                 return
             w = self.getChatWindow(msg.data.get("group"))
             if w:
@@ -66,7 +67,7 @@ class MainWindow(QMainWindow):
         self.client: ClientChatProtocol = await ClientChatProtocol.create(server_addr)
         self.client.on_con_lost.add_done_callback(self.onLostConnection)
         self.client.add_server_connected_listener(self.onCreatedConnection)
-        print(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
+        logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
         # Allow the GUI to receive messages from the client
         self.client.set_receive_listener(self.onReceiveMessage)
         # Only fetch messages if this is the first time connecting to the server
@@ -103,7 +104,7 @@ class MainWindow(QMainWindow):
     def onReceiveHistoricalMessages(self, resp: asyncio.Future):
         """Request historical messages from the server's database."""
         if resp.exception():
-            print("Error retrieving historical messages.")
+            logging.error("Error retrieving historical messages.")
         else:
             group_name = resp.request.data.get("group")
             window = self.getChatWindow(group_name)
@@ -127,7 +128,7 @@ class MainWindow(QMainWindow):
         for w in self.chatWindows():
             w.input_cont.setDisabled(False)
         # Try to clear the message backlog
-        print(f"{self.message_backlog.qsize()} message(s) in backlog.")
+        logging.debug(f"{self.message_backlog.qsize()} message(s) in backlog.")
         while not self.message_backlog.empty():
             self.client.send_message(msg=self.message_backlog.get(), on_response=self.onSendMessage)
 
@@ -137,5 +138,5 @@ class MainWindow(QMainWindow):
             msg: UDPMessage = response.request
             # Add the message to the backlog - it will be sent again once reconnected
             if msg.type == UDPMessage.MessageType.CHT:
-                print("Added message to backlog")
+                logging.debug("Added message to backlog")
                 self.message_backlog.put(msg)

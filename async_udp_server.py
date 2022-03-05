@@ -1,13 +1,13 @@
 """Asynchronous UDP server implementation for a group chat API using websockets."""
 import asyncio
 import json
-from multiprocessing.sharedctypes import Value
 import struct
 import sys
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, NamedTuple, Union
-from exceptions import ItemAlreadyExistsException, ItemNotFoundException
+import logging
 
+from exceptions import ItemAlreadyExistsException, ItemNotFoundException
 from chat_database_controller_sqlite3 import DatabaseController
 
 # Constants
@@ -103,18 +103,18 @@ class InMemoryGroupLayer(Dict[str, Set[Address]]):
         if group in self:
             raise ItemAlreadyExistsException(group)
         self[group] = {addr}
-        print(f"{addr[0]}:{addr[1]} created new group: '{group}'")
+        logging.info(f"{addr[0]}:{addr[1]} created new group: '{group}'")
 
     def group_sub(self, group: str, addr: Address) -> None:
         """Register a channel in an existing group."""
         if group not in self:
             raise ItemNotFoundException(group)
         self.setdefault(group, set()).add(addr)
-        print(f"Subscribe {addr[0]}:{addr[1]} to group '{group}'")
+        logging.info(f"Subscribe {addr[0]}:{addr[1]} to group '{group}'")
 
     def group_send(self, group: str, msg: UDPMessage) -> None:
         """Send a message to all addresses in a group."""
-        print(f"Send {msg} to group '{group}'")
+        logging.info(f"Send {msg} to group '{group}'")
         for addr in self.get(group, set()):
             self.transport.sendto(msg.to_bytes(), addr)
 
@@ -159,7 +159,7 @@ class ServerChatProtocol(asyncio.Protocol):
             self.client_connection_made(addr)
         if msg.header.FIN:
             self.client_connection_terminated(addr)
-        print('Received %s from %s' % (msg, addr))
+        logging.debug('Received %s from %s' % (msg, addr))
         ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True, SYN=False), {})
         # Determine the message type and process accordingly
         if msg.data and msg.type:
@@ -234,7 +234,7 @@ def get_host_and_port() -> Address:
 
 async def main():
     host, port = get_host_and_port()
-    print(f"Starting UDP server at {host}:{port}...")
+    logging.info(f"Starting UDP server at {host}:{port}...")
 
     loop = asyncio.get_event_loop()
 
@@ -252,5 +252,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("aught keyboard interrupt, exiting...")
+        logging.info("aught keyboard interrupt, exiting...")
         sys.exit(0)

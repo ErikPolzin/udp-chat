@@ -4,6 +4,7 @@ from mysql.connector import Error, MySQLConnection
 from mysql.connector.cursor import MySQLCursor
 from datetime import datetime
 from exceptions import ItemNotFoundException
+import logging
 
 class DatabaseController():
 
@@ -53,7 +54,7 @@ class DatabaseController():
             self.execute_query(conn, message_query)
             # Create the default group if there are no groups in the DB
             if len(self.group_names()) == 0:
-                print("Creating default group.")
+                logging.info("Creating default group.")
                 self.new_group("default")
 
     def new_message(self, group_name: str, user_name: str, text: str):
@@ -66,7 +67,7 @@ class DatabaseController():
             cursor = self.execute_query(
                 con, create_msg, [(room_id, user_id, text, datetime.now())])
             m_id = cursor.lastrowid
-            print(f"Saved message {m_id}")
+            logging.debug(f"Saved message {m_id}")
 
     def new_group(self, group_name: str, user_name: str, group_password: str = None) -> int:
         """Create a new group row."""
@@ -114,9 +115,8 @@ class DatabaseController():
         cursor: MySQLCursor = con.cursor()
         try:
             cursor.execute(query)
-            print("Successfully created Database.")
         except Error as err:
-            print(f"Error: '{err}'")
+            logging.error(f"Error creating database: '{err}'")
         con.close()
         return cursor
 
@@ -137,7 +137,7 @@ class DatabaseController():
                 database=database_name or self.db_name
             )
         except Error as err:
-            print(f"Connection error: '{err}'")
+            logging.error(f"Connection error: '{err}'")
         return c
 
     def execute_query(self, c: MySQLConnection, query: str, values: List=None) -> MySQLCursor:

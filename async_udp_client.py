@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime
 import sys
 from typing import Callable, Dict, Optional, Set
+import logging
 
 from async_udp_server import UDPHeader, UDPMessage, Address, get_host_and_port
 from exceptions import RequestTimedOutException
@@ -55,12 +56,12 @@ class ClientChatProtocol(asyncio.Protocol):
     def connected_to_server(self, response: asyncio.Future):
         """Callback after the client has made a successful connection to the server."""
         if response.exception():
-            print("Error connecting to server")
+            logging.error("Error connecting to server")
         else:
             # Call the server connect listeners.
             for callb in self.server_connected_listeners:
                 callb()
-            print("Connected to server!")
+            logging.info("Connected to server!")
 
     def send_message(self,
                      data: Dict = None,
@@ -104,10 +105,10 @@ class ClientChatProtocol(asyncio.Protocol):
             total_delay += actual_delay
             # Send a message, but don't start a new verification task
             # (since this one is already running)
-            print(f"Re-send {msg} (verification timed out after {delay:.1f}s)")
+            logging.debug(f"Re-send {msg} (verification timed out after {delay:.1f}s)")
             self.transport.sendto(msg_bytes)
             delay *= 2  # Wait for twice as long
-        print(f"Timed out after {total_delay:.1f}s, cancel request.")
+        logging.error(f"Timed out after {total_delay:.1f}s, cancel request.")
         future_response.set_exception(RequestTimedOutException)
         self.on_con_lost.set_result(True)
 
@@ -126,19 +127,19 @@ class ClientChatProtocol(asyncio.Protocol):
                 del self.future_responses[msg.header.SEQN]
             status = msg.data.get("status")
             if status != 200 and status is not None:
-                print(f"Received error: {msg.data.get('error')} [{status}]")
+                logging.warning(f"Received error: {msg.data.get('error')} [{status}]")
             return
         if self.on_receive_message_listener is not None:
             self.on_receive_message_listener(msg)
-        print("Received:", msg)
+        logging.debug("Received:", msg)
 
     def error_received(self, exc):
         """Received an error from the server."""
-        print('Error received:', exc)
+        logging.error('Error received:', exc)
 
     def connection_lost(self, exc):
         """Connection to server lost."""
-        print("Connection closed")
+        logging.warning("Connection lost")
         self.on_con_lost.set_result(True)
 
     def set_receive_listener(self, listener: Callable[[UDPMessage], None]):
@@ -160,7 +161,7 @@ async def ainput(string: str = None) -> str:
 
 async def main(server_addr: Address):
     """Run the client, sending typed messages from the terminal to the default chat room."""
-    print(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
+    logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
     protocol: ClientChatProtocol = await ClientChatProtocol.create(server_addr)
     try:
         while True:
@@ -189,5 +190,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(server_addr))
     except KeyboardInterrupt:
-        print("aught keyboard interrupt, exiting...")
+        logging.info("aught keyboard interrupt, exiting...")
         sys.exit(0)

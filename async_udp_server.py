@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Set, Tuple, NamedTuple, Union
 import logging
 
 from exceptions import ItemAlreadyExistsException, ItemNotFoundException
-from chat_database_controller_sqlite3 import DatabaseController
+from db_sqlite import DatabaseController
 
 # Constants
 HEADER_FORMAT: str = "!i???"

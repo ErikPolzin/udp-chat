@@ -54,7 +54,7 @@ class DatabaseController():
                 logging.info("Creating default group.")
                 self.new_group("default")
 
-    def new_message(self, group_name: str, user_name: str, text: str):
+    def new_message(self, group_name: str, user_name: str, text: str, time_sent: datetime) -> int:
         """Create a new message row."""
         create_msg = "INSERT INTO Message (RoomID, UserID, Text, Date_Sent) VALUES (?, ?, ?, ?);"""
         with self.connection() as con:
@@ -62,9 +62,10 @@ class DatabaseController():
             room_id = self.get_room_id_by_name(con, group_name)
             user_id = self.get_user_id_by_name(con, user_name)
             cursor = self.execute_query(
-                con, create_msg, (room_id, user_id, text, datetime.now()))
+                con, create_msg, (room_id, user_id, text, time_sent))
             m_id = cursor.lastrowid
             logging.debug(f"Saved message {m_id}")
+            return m_id
 
     def new_group(self, group_name: str, user_name: str = None, group_password: str = None) -> int:
         """Create a new group row."""

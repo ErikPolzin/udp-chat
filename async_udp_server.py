@@ -6,6 +6,7 @@ import sys
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, NamedTuple, Union
 import logging
+from datetime import datetime
 
 from exceptions import ItemAlreadyExistsException, ItemNotFoundException
 from db_sqlite import DatabaseController
@@ -176,8 +177,11 @@ class ServerChatProtocol(asyncio.Protocol):
         # Message is a chat message, send it to the associated group
         if mtype == UDPMessage.MessageType.CHT:
             text = msg.data.get("text")
+            time_sent = datetime.now()
+            if "time_sent" in msg.data:
+                time_sent = datetime.fromisoformat(msg.data["time_sent"])
             try:
-                self.db_controller.new_message(group_name, user_name, text)
+                self.db_controller.new_message(group_name, user_name, text, time_sent)
             except Exception as e:
                 return 500, None, f"Unable to save message: {e}"
             self.group_layer.group_send(group_name, msg)

@@ -72,7 +72,7 @@ class ChatCanvas(QFrame):
             self.username_label.setStyleSheet(self.UNAME_SS)
             self.text_label = QLabel(self.text)
             self.text_label.setStyleSheet(self.TEXT_SS)
-            self.time_label = QLabel(self.time_sent.strftime("%-I:%S %p"))
+            self.time_label = QLabel(self.time_sent.strftime("%-I:%M %p"))
             self.ack_label = QLabel()
             self.ack_label.setPixmap(self.CHECK_SINGLE)
             footer = QWidget()

@@ -16,6 +16,16 @@ else:
     MainWindow = Any
 
 
+class LineWidget(QFrame):
+    """From https://stackoverflow.com/questions/10053839/how-does-designer-create-a-line-widget."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFrameShape(QFrame.HLine)
+        self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
+        self.setStyleSheet("border-color: black;")
+
+
 class ChatCanvas(QFrame):
     """The chat canvas displays chat messages for a particular group."""
 
@@ -49,6 +59,13 @@ class ChatCanvas(QFrame):
         UNAME_SS = "font-size: 14px; font-weight: bold; color: #222222"
         FOOTER_SS = "color: #444444; font-size: 13px"
         TEXT_SS = "color: black; font-size: 14px"
+        DATE_SEPARATOR_SS = """
+            #date_separator {
+                border-radius: 5px;
+                background-color: #444444;
+                padding: 4px;
+            }
+        """
 
         def __init__(self, seq_id: int, text: str, username: str, time_sent: datetime):
             """Initialize a message from message data."""
@@ -87,9 +104,19 @@ class ChatCanvas(QFrame):
             layout.addWidget(self.text_label)
             layout.addWidget(footer)
 
-        def setPreviousMessage(self, pmsg: 'ChatCanvas.MessageWidget') -> None:
+        def setPreviousMessage(self, pmsg: 'ChatCanvas.MessageWidget', layout: QVBoxLayout, index: int) -> None:
             """Set the previous message."""
-            if pmsg.username == self.username:
+            if self.time_sent.strftime('%Y-%m-%d') != pmsg.time_sent.strftime('%Y-%m-%d'):
+                date_separator = QWidget()
+                date_sep_layout = QHBoxLayout(date_separator)
+                date_sep_layout.addWidget(LineWidget())
+                date_sep_text = QLabel(self.time_sent.strftime('%d/%m/%Y'))
+                date_sep_layout.addWidget(date_sep_text)
+                date_sep_layout.addWidget(LineWidget())
+                date_sep_text.setObjectName("date_separator")
+                date_sep_text.setStyleSheet(self.DATE_SEPARATOR_SS)
+                layout.insertWidget(index, date_separator)
+            elif pmsg.username == self.username:
                 self.username_label.setParent(None)
 
         def acknowledge(self):
@@ -163,7 +190,7 @@ class ChatCanvas(QFrame):
         self.view_layout.insertWidget(insert_index, widget)
         prev_msg = self.view_layout.itemAt(insert_index-1).widget()
         if prev_msg:
-            widget.setPreviousMessage(prev_msg)
+            widget.setPreviousMessage(prev_msg, self.view_layout, insert_index)
         if ack:
             widget.acknowledge()
         # Change the vlurb and notify listeners

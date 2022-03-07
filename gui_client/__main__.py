@@ -19,7 +19,6 @@ if __name__ == "__main__":
     app = QApplication([])
 
     window = MainWindow(server_addr)
-    window.showMaximized()
 
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)

@@ -71,13 +71,9 @@ class DatabaseController(object):
         """Create a new group row."""
         create_room = "INSERT INTO Room (Name, Password, Date_Created) VALUES (?, ?, ?);"
         with self.connection() as con:
-            user_id = None
-            if user_name:
-                user_id = self.get_user_id_by_name(con, user_name)
             cur = self.execute_query(con, create_room, (group_name, group_password, datetime.now()))
             group_id = cur.lastrowid
-            if group_id is not None and user_id is not None:
-                self.new_member(user_id, group_id)
+            self.new_member(user_name, group_name)
             return group_id
 
     def new_member(self, user_name: str, group_name: str) -> int:
@@ -211,7 +207,8 @@ class DatabaseController(object):
             tuple_addresses = []
             for str_addr in str_addresses:
                 result = urllib.parse.urlsplit('//' + str_addr[0])
-                tuple_addresses.append((result.hostname, result.port))
+                if result.hostname is not None and result.port is not None:
+                    tuple_addresses.append((result.hostname, result.port))
         return tuple_addresses
 
     def update_user_address(self, con: sqlite3.Connection, username: str, addr: tuple) -> None:
@@ -219,3 +216,9 @@ class DatabaseController(object):
         query = "UPDATE User SET Address=? WHERE Username=?;"
         str_addr = f"{addr[0]}:{addr[1]}"
         self.execute_query(con, query, (str_addr, username))
+
+    def user_list(self):
+        """Fetch a list of users from the database."""
+        user_list_query = "SELECT User.Username FROM User"
+        with self.connection() as c:
+            return [i[0] for i in self.read_query(c, user_list_query)]

@@ -48,9 +48,10 @@ class UDPMessage(object):
         GRP_SUB = "GRP_SUB"  # Request to subscribe to an existing group
         GRP_ADD = "GRP_ADD"  # Request to create a new group
         GRP_HST = "GRP_HST"  # Request group history
-        MSG_HST = "MSG_HST" #Request message history for group
-        USR_LOGIN = "USR_LOGIN" #Request to veryify user credentials
-        USR_ADD = "USR_ADD" #Request to create a new user
+        MSG_HST = "MSG_HST"  # Request message history for group
+        USR_LOGIN = "USR_LOGIN" # Request to veryify user credentials
+        USR_ADD = "USR_ADD"  # Request to create a new user
+        USR_LST = "USR_LST"  # Request a list of all usernames
 
     def __init__(self, header: UDPHeader, data: Optional[dict] = None):
         """Initialize a chat message from header and data."""
@@ -95,10 +96,13 @@ class SqliteGroupLayer(object):
         self.transport = transport
         self.db_controller = db_controller
 
-    def group_add(self, group: str, user_name: str) -> None:
+    def group_add(self, group: str, user_name: str, members: List[str]) -> None:
         """Register a channel in a new group."""
         self.db_controller.new_group(group, user_name)
         logging.info(f"{user_name} created new group: '{group}'")
+        # Extremely inefficient but let's keep it simple
+        for mname in members:
+            self.group_sub(group, mname)
 
     def group_sub(self, group: str, username: str) -> None:
         """Register a channel in an existing group."""
@@ -184,7 +188,8 @@ class ServerChatProtocol(asyncio.Protocol):
         # Message is a group add, try create a new group
         elif mtype == UDPMessage.MessageType.GRP_ADD:
             try:
-                self.group_layer.group_add(group_name, addr)
+                members = msg.data.get("members", [])
+                self.group_layer.group_add(group_name, user_name, members)
                 logging.info(f"Created new group '{group_name}'")
                 return 200, {"group": group_name}, None
             except ItemAlreadyExistsException:
@@ -204,6 +209,9 @@ class ServerChatProtocol(asyncio.Protocol):
         elif mtype == UDPMessage.MessageType.MSG_HST:
             message_history = list(self.db_controller.message_history(group_name))
             return 200, message_history, None
+        elif mtype == UDPMessage.MessageType.USR_LST:
+            user_list = list(self.db_controller.user_list())
+            return 200, user_list, None
         elif mtype == UDPMessage.MessageType.USR_LOGIN:
             try:
                 cred_valid = self.db_controller.user_login(user_name, password, addr)

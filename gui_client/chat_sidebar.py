@@ -1,9 +1,9 @@
 import asyncio
 from typing import TYPE_CHECKING, Any, Optional
+import logging
 
-from PyQt5.QtCore import QSize
-from PyQt5.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QLabel, QLineEdit
-from PyQt5.QtWidgets import QPushButton, QSizePolicy, QFrame, QHBoxLayout
+from PyQt5.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QLabel, QLineEdit, QCheckBox
+from PyQt5.QtWidgets import QPushButton, QSizePolicy, QFrame, QHBoxLayout, QGroupBox
 from PyQt5.QtGui import QIcon
 
 from async_udp_server import UDPMessage
@@ -26,11 +26,7 @@ class ChatSidebar(QDockWidget):
         font-weight: bold;
         font-size: 20px;
     """
-    GROUP_ADD_SS = """
-        border-radius: 20px;
-        background-color: #6d1596
-    """
-
+    
     def __init__(self, username, mwindow: 'MainWindow'):
         """Initialize the chat sidebar."""
         super().__init__()
@@ -49,10 +45,7 @@ class ChatSidebar(QDockWidget):
         self.group_title = QLabel(username)
         self.group_title.setStyleSheet(self.TITLE_SS)
         self.group_add = QPushButton()
-        self.group_add.setFixedSize(40,40)
-        self.group_add.setIconSize(QSize(30, 30))
         self.group_add.setIcon(QIcon(":/add-group.png"))
-        self.group_add.setStyleSheet(self.GROUP_ADD_SS)
         self.group_add.clicked.connect(self.onClickNewGroup)
         header_layout.addWidget(self.group_title)
         header_layout.addStretch()
@@ -61,15 +54,21 @@ class ChatSidebar(QDockWidget):
         # Create new group widget
         self.new_group_widget = QFrame()
         new_group_layout = QVBoxLayout(self.new_group_widget)
+        self.group_submit = QPushButton("Create Group")
+        self.member_list = QGroupBox("Members")
+        member_layout = QVBoxLayout()
+        self.member_list.setLayout(member_layout)
         self.new_group_input = QLineEdit()
         self.new_group_input.setPlaceholderText("New group name")
         self.new_group_input.returnPressed.connect(self.onReturnGroupName)
-        self.new_group_input.hide()
+        self.group_submit.clicked.connect(self.onReturnGroupName)
+        self.new_group_widget.hide()
         self.group_warning_label = QLabel()
         self.group_warning_label.setStyleSheet("color: red")
         self.group_warning_label.hide()
         new_group_layout.addWidget(self.new_group_input)
-        new_group_layout.addWidget(self.group_warning_label)
+        new_group_layout.addWidget(self.member_list)
+        new_group_layout.addWidget(self.group_submit)
         # Create a reconnect widget
         self.reconnect_button = QPushButton("Reconnect")
         self.reconnect_button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -82,6 +81,7 @@ class ChatSidebar(QDockWidget):
         # self.reconnect_widget.hide()
         self.content_widget.layout().addWidget(self.group_header)
         self.content_widget.layout().addWidget(self.new_group_widget)
+        self.content_widget.layout().addWidget(self.group_warning_label)
         self.content_widget.layout().addWidget(self.reconnect_widget)
         self.content_widget.layout().addStretch()
         self.setWidget(self.content_widget)
@@ -98,9 +98,12 @@ class ChatSidebar(QDockWidget):
 
     def onClickNewGroup(self):
         """Run when the user clicks the new group button."""
-        if not self.new_group_input.isVisible():
-            self.new_group_input.show()
+        if not self.new_group_widget.isVisible():
+            self.new_group_widget.show()
             self.new_group_input.setFocus()
+            self.fetchUsers()
+        else:
+            self.new_group_widget.hide()
 
     def onReturnGroupName(self):
         """User submitted the new group name."""
@@ -109,7 +112,8 @@ class ChatSidebar(QDockWidget):
         self.mwindow.client.send_message({
             "type": UDPMessage.MessageType.GRP_ADD.value,
             "group": group_name,
-            "username": self.username
+            "members": list(self.selectedMembers()),
+            "username": self.mwindow.username
         }, on_response=self.onCreateGroupResponse)
         self.new_group_input.clear()
 
@@ -133,6 +137,7 @@ class ChatSidebar(QDockWidget):
         self.mwindow.content_widget.addWidget(new_chat_window)
         tab = self.addChatWindow(new_chat_window)
         self.setActiveTab(tab, new_chat_window)
+        self.new_group_widget.hide()
 
     def addChatWindow(self, chat_window: ChatCanvas) -> QFrame:
         """Register a chat window in the sidebar."""
@@ -163,5 +168,38 @@ class ChatSidebar(QDockWidget):
         self.active_tab = chat_tab
         self.active_tab.setStyleSheet("background-color: grey;")
         self.mwindow.content_widget.setCurrentWidget(chat_window)
+
+    def fetchUsers(self):
+        """Request a list of users from the server."""
+        self.mwindow.client.send_message({
+            "type": UDPMessage.MessageType.USR_LST.value,
+        }, on_response=self.onFetchUsers)
+
+    def onFetchUsers(self, resp: asyncio.Future):
+        """Server returned a list of users, or an error."""
+        if resp.exception():
+            logging.warning("Timed out fetching usernames")
+            self.member_list.hide()
+            return
+        msg: UDPMessage = resp.result()
+        response_code = msg.data.get("status")
+        usernames = msg.data.get("response", [])
+        if response_code != 200:
+            logging.warning(f"Received code {response_code} after fetching usernames.")
+            self.member_list.hide()
+            return
+        for uname in usernames:
+            # The user can't add themselves to a group ;P
+            if uname == self.mwindow.username:
+                continue
+            user_cbox = QCheckBox(uname)
+            self.member_list.layout().addWidget(user_cbox)
+
+    def selectedMembers(self):
+        """Return selected member names."""
+        cb: QCheckBox
+        for cb in self.member_list.findChildren(QCheckBox):
+            if cb.isChecked():
+                yield cb.text()
 
 

@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, NamedTuple, Union
 import logging
 from datetime import datetime
+import random
 
 from exceptions import ItemAlreadyExistsException, ItemNotFoundException
 from db_sqlite import DatabaseController
@@ -141,6 +142,9 @@ class ServerChatProtocol(asyncio.Protocol):
         """Received a datagram from the chat's socket."""
         if self.transport is None:
             return
+        # Mimic 20% of UDP packets not arriving
+        if random.random() < 0.2:
+            return
         msg = UDPMessage.from_bytes(data)
         if msg.header.SYN:
             self.client_connection_made(addr)
@@ -217,7 +221,7 @@ class ServerChatProtocol(asyncio.Protocol):
             return 400, None, f"Unrecognised message type '{mtype}'"
 
 
-def get_host_and_port() -> Address:
+def get_host_and_port(random_port=False) -> Address:
     """Get the host and port from system args."""
     if len(sys.argv) == 3:
         host, port = sys.argv[1], int(sys.argv[2])
@@ -225,7 +229,7 @@ def get_host_and_port() -> Address:
         host, port = sys.argv[1], 5000
     else:
         host, port = '127.0.0.1', 5000
-    return (host, port)
+    return (host, port) if not random_port else (host, None)
 
 async def main():
     logging.basicConfig(level=logging.DEBUG)

@@ -186,7 +186,7 @@ async def main(server_addr: Address):
 
 
 if __name__ == "__main__":
-    server_addr = get_host_and_port()
+    server_addr = get_host_and_port(random_port=True)
     try:
         asyncio.run(main(server_addr))
     except KeyboardInterrupt:

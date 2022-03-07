@@ -86,38 +86,29 @@ class UDPMessage(object):
         return self.header.to_bytes() + json.dumps(self.data).encode()
 
 
-class InMemoryGroupLayer(Dict[str, Set[Address]]):
+class SqliteGroupLayer(object):
     """Registers, removed and sends messages to groups."""
 
-    def __init__(self, transport: asyncio.DatagramTransport):
+    def __init__(self, transport: asyncio.DatagramTransport, db_controller: DatabaseController):
         """Initialize a memory group layer."""
         self.transport = transport
-        self["default"] = set()
+        self.db_controller = db_controller
 
-    def group_add(self, group: str, addr: Address) -> None:
+    def group_add(self, group: str, user_name: str) -> None:
         """Register a channel in a new group."""
-        if group in self:
-            raise ItemAlreadyExistsException(group)
-        self[group] = {addr}
-        logging.info(f"{addr[0]}:{addr[1]} created new group: '{group}'")
+        self.db_controller.new_group(group, user_name)
+        logging.info(f"{user_name} created new group: '{group}'")
 
-    def group_sub(self, group: str, addr: Address) -> None:
+    def group_sub(self, group: str, username: str) -> None:
         """Register a channel in an existing group."""
-        if group not in self:
-            raise ItemNotFoundException(group)
-        self.setdefault(group, set()).add(addr)
-        logging.info(f"Subscribe {addr[0]}:{addr[1]} to group '{group}'")
+        self.db_controller.new_member(username, group)
+        logging.info(f"Subscribe {username} to group '{group}'")
 
     def group_send(self, group: str, msg: UDPMessage) -> None:
         """Send a message to all addresses in a group."""
         logging.info(f"Send {msg} to group '{group}'")
-        for addr in self.get(group, set()):
+        for addr in self.db_controller.get_addresses_for_group(group):
             self.transport.sendto(msg.to_bytes(), addr)
-
-    def deregister_address(self, addr: Address) -> None:
-        """De-register address from all groups."""
-        for addresses in self.values():
-            addresses.discard(addr)
 
 
 class ServerChatProtocol(asyncio.Protocol):
@@ -136,15 +127,15 @@ class ServerChatProtocol(asyncio.Protocol):
         """Created a connection to the local socket."""
         self.transport = transport
         self.db_controller = DatabaseController()
-        self.group_layer = InMemoryGroupLayer(transport)
+        self.group_layer = SqliteGroupLayer(transport, self.db_controller)
 
     def client_connection_made(self, addr: Address) -> None:
         """Created a connection to a remote socket."""
-        self.group_layer.group_sub("default", addr)
+        pass
 
     def client_connection_terminated(self, addr: Address) -> None:
         """Signalled to close the connection to the server."""
-        self.group_layer.deregister_address(addr)
+        pass
 
     def datagram_received(self, data: bytes, addr: Address) -> None:
         """Received a datagram from the chat's socket."""
@@ -189,7 +180,6 @@ class ServerChatProtocol(asyncio.Protocol):
         # Message is a group add, try create a new group
         elif mtype == UDPMessage.MessageType.GRP_ADD:
             try:
-                self.db_controller.new_group(group_name, user_name)
                 self.group_layer.group_add(group_name, addr)
                 logging.info(f"Created new group '{group_name}'")
                 return 200, {"group": group_name}, None
@@ -203,7 +193,7 @@ class ServerChatProtocol(asyncio.Protocol):
         # Message is a group subscription, try sub to group
         elif mtype == UDPMessage.MessageType.GRP_SUB:
             try:
-                self.group_layer.group_sub(group_name, addr)
+                self.group_layer.group_sub(group_name, user_name)
                 return 200, None, None
             except ItemNotFoundException:
                 return 400, None, "Group with this name already exists"
@@ -212,13 +202,16 @@ class ServerChatProtocol(asyncio.Protocol):
             return 200, message_history, None
         elif mtype == UDPMessage.MessageType.USR_LOGIN:
             try:
-                cred_valid = self.db_controller.user_login(user_name, password)
+                cred_valid = self.db_controller.user_login(user_name, password, addr)
             except ItemNotFoundException:
                 return 400, None, "Account doesn't exist."
             return 200, {"credentials_valid": cred_valid, "username": user_name}, None
         elif mtype == UDPMessage.MessageType.USR_ADD:
             straddr = f"{addr[0]}:{addr[1]}"
             created = self.db_controller.new_user(user_name, password, straddr)
+            # Add the new user to the 'default' group
+            if created:
+                self.group_layer.group_sub("default", user_name)
             return 200, {"created_user": created}, None
         else:
             return 400, None, f"Unrecognised message type '{mtype}'"

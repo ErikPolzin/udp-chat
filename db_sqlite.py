@@ -1,5 +1,3 @@
-from audioop import add
-from importlib.resources import path
 from typing import Dict, List, Tuple
 from datetime import datetime
 from exceptions import ItemNotFoundException
@@ -8,7 +6,7 @@ from sqlite3 import Error
 import logging
 import urllib.parse
 
-class DatabaseController():
+class DatabaseController(object):
 
     def __init__(self, db_name: str = "udp_chat.sqlite"):
         """Create a new database controller with given parameters."""
@@ -31,7 +29,8 @@ class DatabaseController():
             );"""
         member_query = """CREATE TABLE IF NOT EXISTS Member (
             UserID INTEGER NOT NULL,
-            RoomID INTEGER NOT NULL
+            RoomID INTEGER NOT NULL,
+            UNIQUE(UserID, RoomID)
             );"""
         message_query = """CREATE TABLE IF NOT EXISTS Message (
             MessageID INTEGER PRIMARY KEY,
@@ -81,10 +80,12 @@ class DatabaseController():
                 self.new_member(user_id, group_id)
             return group_id
 
-    def new_member(self, user_id: int, group_id: int) -> int:
+    def new_member(self, user_name: str, group_name: str) -> int:
         """Create a new member row."""
         query = "INSERT INTO Member (UserID, RoomID) VALUES (?, ?);"
         with self.connection() as con:
+            user_id = self.get_user_id_by_name(con, user_name)
+            group_id = self.get_room_id_by_name(con, group_name)
             cur = self.execute_query(con, query, (user_id, group_id))
             return cur.lastrowid
 
@@ -100,10 +101,13 @@ class DatabaseController():
             return True
         return False
 
-    def user_login(self, user_name: str, password: str) -> str:
+    def user_login(self, user_name: str, password: str, addr: Tuple) -> str:
         """Attempt to log in user"""
         with self.connection() as con:
             correct_password = self.verify_user_credentials(con, user_name, password)
+            if correct_password:
+                # Update this user's associated IP address if they enter the correct password
+                self.update_user_address(con, user_name, addr)
         return correct_password
 
     def message_history(self, room_name: str) -> Dict:
@@ -130,7 +134,7 @@ class DatabaseController():
             SELECT Room.Name, datetime(Room.Date_Created)
             FROM Room INNER JOIN Member
             ON Room.RoomID = Member.RoomID
-            WHERE Member.UserID = ? AND Room.Name != 'default';"""
+            WHERE Member.UserID = ?;"""
             for r in self.read_query(con, query, (user_id,)):
                 yield {
                     "Name": r[0],
@@ -192,3 +196,26 @@ class DatabaseController():
         if len(user_row) == 0:
             raise ItemNotFoundException(f"No User with name '{user_name}', and password '{password}'")
         return user_row[0][1] == password
+
+    def get_addresses_for_group(self, group_name: str) -> List[Tuple]:
+        """Return a list of addresses for a group."""
+        get_addresses_query = """
+            SELECT User.Address
+            FROM Room INNER JOIN Member
+            ON Room.RoomID = Member.RoomID
+            INNER JOIN User
+            ON Member.UserID = User.UserID
+            WHERE Room.Name = ?;"""
+        with self.connection() as c:
+            str_addresses = self.read_query(c, get_addresses_query, (group_name,))
+            tuple_addresses = []
+            for str_addr in str_addresses:
+                result = urllib.parse.urlsplit('//' + str_addr[0])
+                tuple_addresses.append((result.hostname, result.port))
+        return tuple_addresses
+
+    def update_user_address(self, con: sqlite3.Connection, username: str, addr: tuple) -> None:
+        """Update a user's last seen IP address and port."""
+        query = "UPDATE User SET Address=? WHERE Username=?;"
+        str_addr = f"{addr[0]}:{addr[1]}"
+        self.execute_query(con, query, (str_addr, username))

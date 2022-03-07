@@ -5,7 +5,7 @@ from queue import Queue
 import logging
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMainWindow, QStackedWidget
+from PyQt5.QtWidgets import QMainWindow, QStackedWidget, QGridLayout, QLabel, QLineEdit, QPushButton, QDialog, QVBoxLayout
 
 from async_udp_client import ClientChatProtocol
 from async_udp_server import Address, UDPMessage
@@ -34,10 +34,11 @@ class MainWindow(QMainWindow):
         self.server_addr = server_addr
         self.message_backlog: Queue[UDPMessage] = Queue()
         self.first_connect = True
+        self.username = None
 
         self.content_widget = QStackedWidget()
         self.content_widget.setContentsMargins(0, 0, 0, 0)
-        self.sidebar_widget = ChatSidebar("root", self)
+        self.sidebar_widget = ChatSidebar("Not logged in", self)
         initial_window = ChatCanvas("default", self)
         # Start off with just the 'default' group
         self.setCentralWidget(self.content_widget)
@@ -47,6 +48,11 @@ class MainWindow(QMainWindow):
         self.content_widget.addWidget(initial_window)
         tab = self.sidebar_widget.addChatWindow(initial_window)
         self.sidebar_widget.setActiveTab(tab, initial_window)
+        self.login_dialog = LoginDialog(self)
+
+    def execute_login(self):
+        """Show the login dialog."""
+        self.login_dialog.show()
 
     def onReceiveMessage(self, msg: UDPMessage):
         """Client received a new message."""
@@ -70,10 +76,7 @@ class MainWindow(QMainWindow):
         logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
         # Allow the GUI to receive messages from the client
         self.client.set_receive_listener(self.onReceiveMessage)
-        # Only fetch messages if this is the first time connecting to the server
-        if self.first_connect:
-            self.fetchGroups()
-            self.first_connect = False
+        self.execute_login()
 
     def reconnect(self):
         """Re-establish the connection to the server."""
@@ -82,6 +85,59 @@ class MainWindow(QMainWindow):
     def sendMessage(self, data):
         """A chat window has requested to send a message."""
         self.client.send_message(data, on_response=self.onSendMessage)
+
+    def verify_credentials(self, username: str, password: str):
+        """Send account verification to the server."""
+        self.client.send_message({
+            "type": UDPMessage.MessageType.USR_LOGIN.value,
+            "username": username,
+            "password": password,
+        }, on_response=self.on_login)
+
+    def on_login(self, resp: asyncio.Future):
+        """Server returned a login reponse."""
+        wlab = self.login_dialog.login_warning_label
+        if resp.exception():
+            wlab.show()
+            wlab.setText("Error logging in.")
+            return
+        msg: UDPMessage = resp.result()
+        response_code = msg.data.get("status")
+        response_data = msg.data.get("response", {})
+        if response_code != 200:
+            wlab.show()
+            wlab.setText(f"Login unsuccessful: {msg.data.get('error')}")
+        else:
+            if not response_data.get("credentials_valid"):
+                wlab.show()
+                wlab.setText("Credentials invalid")
+                return
+            self.login_dialog.done(1)
+            self.username = msg.data.get("response", {}).get("username")
+            self.fetchGroups()
+            self.sidebar_widget.setUsername(self.username)
+
+    def create_account(self, username: str, password: str):
+        self.client.send_message({
+            "type": UDPMessage.MessageType.USR_ADD.value,
+            "username": username,
+            "password": password,
+        }, on_response=self.on_account_creation)
+
+    def on_account_creation(self, resp: asyncio.Future):
+        wlab = self.login_dialog.login_warning_label
+        if resp.exception():
+            wlab.show()
+            wlab.setText("Could not reach server..")
+            return
+        msg: UDPMessage = resp.result()
+        g = msg.data.get("response", {})
+        created = g.get("created_user", False)
+        wlab.show()
+        if not created:
+            wlab.setText("Username already in use.")
+        else:
+            wlab.setText("Account creation successful.")        
 
     def chatWindows(self) -> List[ChatCanvas]:
         """List all the chat windows."""
@@ -122,26 +178,78 @@ class MainWindow(QMainWindow):
                 logging.debug("Added message to backlog")
                 self.message_backlog.put(msg)
 
-    def fetchGroups(self):
-        """Fetch all groups that this user is part of."""
-        # Fetch the persisted messages
+    def fetchGroups(self) -> None:
         self.client.send_message({
             "type": UDPMessage.MessageType.GRP_HST.value,
-            "group": "default",
-            "username": "root",
+            "username": self.username,
         }, on_response=self.onFetchedGroups)
 
-    def onFetchedGroups(self, resp: asyncio.Future):
+    def onFetchedGroups(self, resp3: asyncio.Future):
         """Request historical messages from the server's database."""
-        if resp.exception():
+        if resp3.exception():
             wlab = self.sidebar_widget.group_warning_label
             wlab.show()
             wlab.setText("Error retrieving groups.")
         else:
-            msg: UDPMessage = resp.result()
+            msg: UDPMessage = resp3.result()
             for g in msg.data.get("response", []):
                 window = ChatCanvas(g["Name"], self)
                 self.content_widget.addWidget(window)
                 self.sidebar_widget.addChatWindow(window)
             for w in self.chatWindows():
                 w.retrieveHistoricalMessages()
+
+class LoginDialog(QDialog):
+
+    TEXT_SS = "color: black; font-size: 14px;"
+
+    BUTTON_SS = """
+        background-color: #262625;
+        color: #f5b049;`
+    """
+
+
+    def __init__(self, mwindow: 'MainWindow'):
+        super().__init__()
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.mwindow = mwindow
+        self.setWindowTitle("UDP Chat Login")
+        self.resize(500, 120)
+
+        layout = QVBoxLayout()
+
+        self.username = QLabel("Username")
+        self.username.setStyleSheet(self.TEXT_SS)
+        self.lineEdit_username = QLineEdit()
+        layout.addWidget(self.username)
+        layout.addWidget(self.lineEdit_username)
+
+        self.password = QLabel("Password")
+        self.password.setStyleSheet(self.TEXT_SS)
+        self.lineEdit_password = QLineEdit()
+        self.lineEdit_password.setEchoMode(QLineEdit.Password)
+        self.lineEdit_password.setInputMethodHints(
+            Qt.ImhHiddenText| Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase)
+        layout.addWidget(self.password)
+        layout.addWidget(self.lineEdit_password)
+
+        login_button = QPushButton("Login")
+        login_button.setStyleSheet(self.BUTTON_SS)
+        login_button.clicked.connect(
+            lambda: self.mwindow.verify_credentials(
+                self.lineEdit_username.text(), self.lineEdit_password.text()))
+        layout.addWidget(login_button, 3)
+
+        create_account_button = QPushButton("Create Account")
+        create_account_button.setStyleSheet(self.BUTTON_SS)
+        create_account_button.clicked.connect(
+            lambda: self.mwindow.create_account(
+                self.lineEdit_username.text(), self.lineEdit_password.text()))
+        layout.addWidget(create_account_button)
+
+        self.login_warning_label = QLabel()
+        self.login_warning_label.setStyleSheet("color: red")
+        self.login_warning_label.hide()
+        layout.addWidget(self.login_warning_label)
+
+        self.setLayout(layout)

@@ -6,6 +6,7 @@ from exceptions import ItemNotFoundException
 import sqlite3
 from sqlite3 import Error
 import logging
+import urllib.parse
 
 class DatabaseController():
 
@@ -87,18 +88,23 @@ class DatabaseController():
             cur = self.execute_query(con, query, (user_id, group_id))
             return cur.lastrowid
 
-    def new_user(self, user_name: str, password: str, address: str) -> int:
-        """Create a new user row."""
-        query = "INSERT INTO User (Address, Username, Password) VALUES (?, ?, ?);"
+    def new_user(self, user_name: str, password: str, address: str) -> bool:
+        """Create a new user row. Returns true if created new user."""
+        query = "SELECT Username FROM User WHERE Username = ? LIMIT 1;"
         with self.connection() as con:
-            cur = self.execute_query(con, query, (address, user_name, password))
-            return cur.lastrowid
+            result = self.read_query(con, query, (user_name,))
+        if len(result)==0:
+            query2 = "INSERT INTO User (Address, Username, Password) VALUES (?, ?, ?);"
+            with self.connection() as con:
+                self.execute_query(con, query2, (address, user_name, password))
+            return True
+        return False
 
-    def user_login(self, user_name: str, password: str) -> int:
+    def user_login(self, user_name: str, password: str) -> str:
         """Attempt to log in user"""
         with self.connection() as con:
-            result = self.verify_user_credentials(con, user_name, password)
-        return result
+            correct_password = self.verify_user_credentials(con, user_name, password)
+        return correct_password
 
     def message_history(self, room_name: str) -> Dict:
         """Return message history as a list of dictionaries."""
@@ -179,10 +185,10 @@ class DatabaseController():
             raise ItemNotFoundException(f"No Room with name '{room_name}'")
         return room_row[0][0]
 
-    def verify_user_credentials(self, c: sqlite3.Connection, user_name: str, password: str) -> int:
+    def verify_user_credentials(self, c: sqlite3.Connection, user_name: str, password: str) -> bool:
         """Return user ID if credentials are valid."""
-        verify_user_query = "SELECT UserID FROM User WHERE Username = ? AND Password = ? LIMIT 1;"
-        user_row = self.read_query(c, verify_user_query, (user_name, password))
+        verify_user_query = "SELECT Username, Password FROM User WHERE Username = ? LIMIT 1;"
+        user_row = self.read_query(c, verify_user_query, (user_name,))
         if len(user_row) == 0:
             raise ItemNotFoundException(f"No User with name '{user_name}', and password '{password}'")
-        return user_row[0][0]
+        return user_row[0][1] == password

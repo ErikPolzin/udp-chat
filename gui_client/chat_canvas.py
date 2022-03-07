@@ -89,7 +89,7 @@ class ChatCanvas(QFrame):
             self.username_label.setStyleSheet(self.UNAME_SS)
             self.text_label = QLabel(self.text)
             self.text_label.setStyleSheet(self.TEXT_SS)
-            self.time_label = QLabel(self.time_sent.strftime("%-I:%M %p"))
+            self.time_label = QLabel(self.time_sent.strftime("%I:%M %p"))
             self.ack_label = QLabel()
             self.ack_label.setPixmap(self.CHECK_SINGLE)
             footer = QWidget()
@@ -202,7 +202,7 @@ class ChatCanvas(QFrame):
         """Enter pressed, send the current message."""
         txt = self.text_input.text()
         now = datetime.now()
-        uname = "root"
+        uname = self.mwindow.username
         seq_id = self.mwindow.client.bytes_sent
         # Add a message to the canvas - it will be verified once the server replies
         msg = self.addMessage(seq_id, txt, uname, now)
@@ -222,7 +222,7 @@ class ChatCanvas(QFrame):
         self.mwindow.client.send_message({
             "type": UDPMessage.MessageType.MSG_HST.value,
             "group": self.group_name,
-            "username": "root",
+            "username": self.mwindow.username,
         }, on_response=self.onReceiveHistoricalMessages)
 
     def onReceiveHistoricalMessages(self, resp: asyncio.Future):

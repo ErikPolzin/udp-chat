@@ -86,6 +86,11 @@ class ChatSidebar(QDockWidget):
         self.content_widget.layout().addStretch()
         self.setWidget(self.content_widget)
 
+    def setUsername(self, username: str) -> None:
+        """Set the displayed username."""
+        self.username = username
+        self.group_title.setText(username)
+
     def onClickReconnect(self):
         """Try to reconnect when the user requests it."""
         # Try to re-start the connection

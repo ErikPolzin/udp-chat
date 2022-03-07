@@ -212,13 +212,14 @@ class ServerChatProtocol(asyncio.Protocol):
             return 200, message_history, None
         elif mtype == UDPMessage.MessageType.USR_LOGIN:
             try:
-                user_id = self.db_controller.user_login(user_name, password)
-                return 200, user_id, None
+                cred_valid = self.db_controller.user_login(user_name, password)
             except ItemNotFoundException:
-                return 400, None, "Invalid acccount details"
+                return 400, None, "Account doesn't exist."
+            return 200, {"credentials_valid": cred_valid, "username": user_name}, None
         elif mtype == UDPMessage.MessageType.USR_ADD:
-            user_id = self.db_controller.new_user(user_name, password, addr)
-            return 200, user_id, None
+            straddr = f"{addr[0]}:{addr[1]}"
+            created = self.db_controller.new_user(user_name, password, straddr)
+            return 200, {"created_user": created}, None
         else:
             return 400, None, f"Unrecognised message type '{mtype}'"
 

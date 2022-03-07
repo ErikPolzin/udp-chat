@@ -14,6 +14,7 @@ except ImportError:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
     server_addr = get_host_and_port()
     app = QApplication([])
 

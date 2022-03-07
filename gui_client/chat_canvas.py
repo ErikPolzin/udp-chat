@@ -1,11 +1,11 @@
 import asyncio
 from datetime import datetime
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Any
+from typing import TYPE_CHECKING, Dict, Any
 
-from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton
+from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton, QApplication
 from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
-from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtCore import pyqtSignal, Qt, pyqtSlot
 from PyQt5.QtGui import QIcon, QPixmap
 
 from async_udp_server import UDPMessage
@@ -123,6 +123,11 @@ class ChatCanvas(QFrame):
             """Acknowledge (=double-tick) a message."""
             self.ack_label.setPixmap(self.CHECK_DOUBLE)
 
+        def setAlignmentAccordingToUsername(self, username: str) -> None:
+            """ALign the message to left or right, depending on its username."""
+            al = Qt.AlignRight if username == self.username else Qt.AlignLeft
+            self.parentWidget().layout().setAlignment(self, al)
+
     
     def __init__(self, group_name: str, mwindow: MainWindow):
         """Initialize for a given group."""
@@ -172,6 +177,12 @@ class ChatCanvas(QFrame):
         self.layout().addWidget(self.group_header)
         self.layout().addWidget(self.scroll_widget, stretch=2)
         self.layout().addWidget(self.input_cont)
+        self.scroll_widget.verticalScrollBar().rangeChanged.connect(self.onScrollChange)
+
+    @pyqtSlot(int, int)
+    def onScrollChange(self, min:int, max: int) -> None:
+        """Scroll to the bottom when scrollbar size changes."""
+        self.sender().setSliderPosition(max)
         
     def addMessage(self, 
                    seq_id: int,
@@ -193,6 +204,7 @@ class ChatCanvas(QFrame):
             widget.setPreviousMessage(prev_msg, self.view_layout, insert_index)
         if ack:
             widget.acknowledge()
+        widget.setAlignmentAccordingToUsername(self.mwindow.username)
         # Change the vlurb and notify listeners
         self.blurb = text
         self.blurbChanged.emit(self.blurb)

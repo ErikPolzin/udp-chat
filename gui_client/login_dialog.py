@@ -17,13 +17,14 @@ class LoginDialog(QDialog):
     TEXT_SS = "font-size: 14px;"
 
     BUTTON_SS = """
-        background-color: #0b2e6e;
+        background-color: #4a4a4a;
         border-style: outset;
         border-width: 1px;
         border-radius: 2px;
         padding: 4px;
+        border-color: #000000;
     """
-    DIALOG_SS = "background-color: #454545;"
+    DIALOG_SS = "background-color: #2e2e2e;"
 
     INPUT_SS = """
         background-color: #545454;

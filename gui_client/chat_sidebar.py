@@ -87,7 +87,6 @@ class ChatSidebar(QDockWidget):
         self.content_widget.layout().addWidget(self.reconnect_widget)
         self.content_widget.layout().addStretch()
         self.setWidget(self.content_widget)
-        self.setStyleSheet(self.SIDEBAR_SS)
 
     def setUsername(self, username: str) -> None:
         """Set the displayed username."""

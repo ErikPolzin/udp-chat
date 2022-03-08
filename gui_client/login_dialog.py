@@ -2,7 +2,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QWidget, QHBoxLayout
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QWidget, QHBoxLayout, QGridLayout
 
 from async_udp_server import UDPMessage
 from gui_client.utils import CircularSpinner
@@ -17,8 +17,21 @@ class LoginDialog(QDialog):
     TEXT_SS = "font-size: 14px;"
 
     BUTTON_SS = """
-        background-color: #262625;
-        color: #f5b049;
+        background-color: #0b2e6e;
+        border-style: outset;
+        border-width: 1px;
+        border-radius: 2px;
+        padding: 4px;
+    """
+    DIALOG_SS = "background-color: #454545;"
+
+    INPUT_SS = """
+        background-color: #545454;
+        border-style: outset;
+        border-radius: 2px;
+        padding: 3px;
+        border-color: #5e5e5e;
+        border-width: 1px;
     """
 
     def __init__(self, mwindow: 'MainWindow'):
@@ -40,8 +53,14 @@ class LoginDialog(QDialog):
         usernameLabel = QLabel("Username")
         usernameLabel.setStyleSheet(self.TEXT_SS)
         self.username = QLineEdit()
-        layout.addWidget(usernameLabel)
-        layout.addWidget(self.username)
+        self.username.setStyleSheet(self.INPUT_SS)
+        usernameLayout = QGridLayout()
+        usernameWidget = QWidget()
+        usernameLayout.addWidget(usernameLabel, 0, 0)
+        usernameLayout.addWidget(self.username, 0, 1)
+        usernameLayout.setColumnMinimumWidth(0, 70)
+        usernameWidget.setLayout(usernameLayout)
+        layout.addWidget(usernameWidget)
 
         passwordLabel = QLabel("Password")
         passwordLabel.setStyleSheet(self.TEXT_SS)
@@ -50,8 +69,14 @@ class LoginDialog(QDialog):
         self.password.setEchoMode(QLineEdit.Password)
         self.password.setInputMethodHints(
             Qt.ImhHiddenText| Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase)
-        layout.addWidget(passwordLabel)
-        layout.addWidget(self.password)
+        self.password.setStyleSheet(self.INPUT_SS)
+        passwordLayout = QGridLayout()
+        passwordWidget = QWidget()
+        passwordLayout.addWidget(passwordLabel, 0, 0)
+        passwordLayout.addWidget(self.password, 0, 1)
+        passwordLayout.setColumnMinimumWidth(0, 70)
+        passwordWidget.setLayout(passwordLayout)
+        layout.addWidget(passwordWidget)
 
         login_button = QPushButton("Login")
         login_button.setStyleSheet(self.BUTTON_SS)
@@ -78,6 +103,7 @@ class LoginDialog(QDialog):
         self.feedbackWidget.hide()
 
         self.setLayout(layout)
+        self.setStyleSheet(self.DIALOG_SS)
 
     def create_account(self, username: str, password: str):
         """Request the server to create a new account."""

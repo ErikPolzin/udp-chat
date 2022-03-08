@@ -109,13 +109,17 @@ class ChatSidebar(QDockWidget):
         """User submitted the new group name."""
         self.group_warning_label.hide()
         group_name = self.new_group_input.text()
-        self.mwindow.client.send_message({
-            "type": UDPMessage.MessageType.GRP_ADD.value,
-            "group": group_name,
-            "members": list(self.selectedMembers()),
-            "username": self.mwindow.username
-        }, on_response=self.onCreateGroupResponse)
-        self.new_group_input.clear()
+        if(not (group_name and not group_name.isspace())):
+            self.group_warning_label.show()
+            self.group_warning_label.setText("Group name cannot be blank")
+        else:
+            self.mwindow.client.send_message({
+                "type": UDPMessage.MessageType.GRP_ADD.value,
+                "group": group_name,
+                "members": list(self.selectedMembers()),
+                "username": self.mwindow.username
+            }, on_response=self.onCreateGroupResponse)
+            self.new_group_input.clear()
 
     def onCreateGroupResponse(self, fut: asyncio.Future):
         """Server returned a response, created a new group."""

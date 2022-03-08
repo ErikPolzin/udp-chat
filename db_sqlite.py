@@ -5,6 +5,10 @@ import sqlite3
 from sqlite3 import Error
 import logging
 import urllib.parse
+import os
+import hashlib
+import hmac
+import base64
 
 class DatabaseController(object):
 
@@ -73,7 +77,8 @@ class DatabaseController(object):
         with self.connection() as con:
             cur = self.execute_query(con, create_room, (group_name, group_password, datetime.now()))
             group_id = cur.lastrowid
-            self.new_member(user_name, group_name)
+            if user_name is not None:
+                self.new_member(user_name, group_name)
             return group_id
 
     def new_member(self, user_name: str, group_name: str) -> int:
@@ -90,10 +95,12 @@ class DatabaseController(object):
         query = "SELECT Username FROM User WHERE Username = ? LIMIT 1;"
         with self.connection() as con:
             result = self.read_query(con, query, (user_name,))
-        if len(result)==0:
+        if len(result) == 0:
+            pwrd_salt, pwrd_hash = self.hash_new_password(password)
+            pwd_hashed = f"{pwrd_salt}${pwrd_hash}"
             query2 = "INSERT INTO User (Address, Username, Password) VALUES (?, ?, ?);"
             with self.connection() as con:
-                self.execute_query(con, query2, (address, user_name, password))
+                self.execute_query(con, query2, (address, user_name, pwd_hashed))
             return True
         return False
 
@@ -191,7 +198,9 @@ class DatabaseController(object):
         user_row = self.read_query(c, verify_user_query, (user_name,))
         if len(user_row) == 0:
             raise ItemNotFoundException(f"No User with name '{user_name}', and password '{password}'")
-        return user_row[0][1] == password
+        hashed_pwrd: str = user_row[0][1]
+        salt, hash = hashed_pwrd.split("$")
+        return self.is_correct_password(salt, hash, password)
 
     def get_addresses_for_group(self, group_name: str) -> List[Tuple]:
         """Return a list of addresses for a group."""
@@ -222,3 +231,27 @@ class DatabaseController(object):
         user_list_query = "SELECT User.Username FROM User"
         with self.connection() as c:
             return [i[0] for i in self.read_query(c, user_list_query)]
+
+    def hash_new_password(self, password: str) -> Tuple[str, str]:
+        """
+        Hash the provided password with a randomly-generated salt and return the
+        salt and hash to store in the database.
+
+        Adapted from https://stackoverflow.com/questions/9594125/salt-and-hash-a-password-in-python
+        """
+        salt = os.urandom(16)
+        pw_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+        return base64.encodebytes(salt).decode("utf-8"), base64.encodebytes(pw_hash).decode("utf-8")
+
+    def is_correct_password(self, salt: str, pw_hash: str, password: str) -> bool:
+        """
+        Given a previously-stored salt and hash, and a password provided by a user
+        trying to log in, check whether the password is correct.
+
+        Adapted from https://stackoverflow.com/questions/9594125/salt-and-hash-a-password-in-python
+        """
+        salt_bytes, hash_bytes = base64.b64decode(salt), base64.b64decode(pw_hash)
+        return hmac.compare_digest(
+            hash_bytes,
+            hashlib.pbkdf2_hmac('sha256', password.encode(), salt_bytes, 100000)
+        )

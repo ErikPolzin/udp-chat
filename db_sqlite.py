@@ -56,7 +56,7 @@ class DatabaseController(object):
             # Create the default group if there are no groups in the DB
             if len(self.group_names()) == 0:
                 logging.info("Creating default group.")
-                self.new_group("default")
+                self.new_group("General Chat Room")
 
     def new_message(self, group_name: str, user_name: str, text: str, time_sent: datetime) -> int:
         """Create a new message row."""

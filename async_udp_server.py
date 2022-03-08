@@ -170,7 +170,7 @@ class ServerChatProtocol(asyncio.Protocol):
         ) -> Tuple[int, Optional[Union[List, Dict]], Optional[str]]:
         """Received a message with an associated type. Usually called after datagram_received()."""
         mtype = msg.type
-        group_name = msg.data.get("group", "default")
+        group_name = msg.data.get("group", "General Chat Room")
         user_name = msg.data.get("username", "root")
         password = msg.data.get("password", "default")
         # Message is a chat message, send it to the associated group
@@ -223,7 +223,7 @@ class ServerChatProtocol(asyncio.Protocol):
             created = self.db_controller.new_user(user_name, password, straddr)
             # Add the new user to the 'default' group
             if created:
-                self.group_layer.group_sub("default", user_name)
+                self.group_layer.group_sub("General Chat Room", user_name)
             return 200, {"created_user": created}, None
         else:
             return 400, None, f"Unrecognised message type '{mtype}'"

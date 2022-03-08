@@ -2,9 +2,10 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QWidget, QHBoxLayout
 
 from async_udp_server import UDPMessage
+from gui_client.utils import CircularSpinner
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -27,47 +28,60 @@ class LoginDialog(QDialog):
         self.setWindowTitle("UDP Chat Login")
         self.resize(500, 120)
 
+        mwindow.connectingToServer.connect(
+            lambda: self.showFeedback("Connecting to server...", loading=True))
+        mwindow.connectionTimedOut.connect(
+            lambda: self.showError("Unable to reach server"))
+        mwindow.connectedToServer.connect(
+            lambda: self.showSuccess("Connected to server!"))
+
         layout = QVBoxLayout()
 
-        self.username = QLabel("Username")
-        self.username.setStyleSheet(self.TEXT_SS)
-        self.lineEdit_username = QLineEdit()
+        usernameLabel = QLabel("Username")
+        usernameLabel.setStyleSheet(self.TEXT_SS)
+        self.username = QLineEdit()
+        layout.addWidget(usernameLabel)
         layout.addWidget(self.username)
-        layout.addWidget(self.lineEdit_username)
 
-        self.password = QLabel("Password")
-        self.password.setStyleSheet(self.TEXT_SS)
-        self.lineEdit_password = QLineEdit()
+        passwordLabel = QLabel("Password")
+        passwordLabel.setStyleSheet(self.TEXT_SS)
+        self.password = QLineEdit()
         # Hide the password field input
-        self.lineEdit_password.setEchoMode(QLineEdit.Password)
-        self.lineEdit_password.setInputMethodHints(
+        self.password.setEchoMode(QLineEdit.Password)
+        self.password.setInputMethodHints(
             Qt.ImhHiddenText| Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase)
+        layout.addWidget(passwordLabel)
         layout.addWidget(self.password)
-        layout.addWidget(self.lineEdit_password)
 
         login_button = QPushButton("Login")
         login_button.setStyleSheet(self.BUTTON_SS)
         login_button.clicked.connect(
             lambda: self.verify_credentials(
-                self.lineEdit_username.text(), self.lineEdit_password.text()))
+                self.username.text(), self.password.text()))
         layout.addWidget(login_button, 3)
 
         create_account_button = QPushButton("Create Account")
         create_account_button.setStyleSheet(self.BUTTON_SS)
         create_account_button.clicked.connect(
             lambda: self.create_account(
-                self.lineEdit_username.text(), self.lineEdit_password.text()))
+                self.username.text(), self.password.text()))
         layout.addWidget(create_account_button)
 
-        self.login_warning_label = QLabel()
-        self.login_warning_label.setStyleSheet("color: red")
-        self.login_warning_label.hide()
-        layout.addWidget(self.login_warning_label)
+        # Construct the feedback widget
+        self.feedbackWidget = QWidget()
+        feedbackLayout = QHBoxLayout(self.feedbackWidget)
+        self.feedbackLoader = CircularSpinner(self.feedbackWidget)
+        self.feedbackLabel = QLabel("Feedback placeholder")
+        feedbackLayout.addWidget(self.feedbackLoader)
+        feedbackLayout.addWidget(self.feedbackLabel)
+        layout.addWidget(self.feedbackWidget)
+        self.feedbackWidget.hide()
 
         self.setLayout(layout)
 
     def create_account(self, username: str, password: str):
         """Request the server to create a new account."""
+        self.showFeedback("Creating account...", loading=True)
         self.mwindow.client.send_message({
             "type": UDPMessage.MessageType.USR_ADD.value,
             "username": username,
@@ -76,22 +90,20 @@ class LoginDialog(QDialog):
 
     def on_account_creation(self, resp: asyncio.Future):
         """Server created an accound, or returned an error."""
-        wlab = self.login_warning_label
         if resp.exception():
-            wlab.show()
-            wlab.setText("Could not reach server..")
+            self.showError("Could not reach server..")
             return
         msg: UDPMessage = resp.result()
         g = msg.data.get("response", {})
         created = g.get("created_user", False)
-        wlab.show()
         if not created:
-            wlab.setText("Username already in use.")
+            self.showError("Username already in use.")
         else:
-            wlab.setText("Account creation successful.")
+            self.showSuccess("Account creation successful.")
 
     def verify_credentials(self, username: str, password: str):
         """Send account verification to the server."""
+        self.showFeedback("Loggin in...", loading=True)
         self.mwindow.client.send_message({
             "type": UDPMessage.MessageType.USR_LOGIN.value,
             "username": username,
@@ -100,22 +112,40 @@ class LoginDialog(QDialog):
 
     def on_login(self, resp: asyncio.Future):
         """Server returned a login reponse."""
-        wlab = self.login_warning_label
         if resp.exception():
-            wlab.show()
-            wlab.setText("Error logging in.")
+            self.showError("Could not contact server.")
             return
         msg: UDPMessage = resp.result()
         response_code = msg.data.get("status")
         response_data = msg.data.get("response", {})
         if response_code != 200:
-            wlab.show()
-            wlab.setText(f"Login unsuccessful: {msg.data.get('error')}")
+            self.showError(f"Login unsuccessful: {msg.data.get('error')}")
         else:
             if not response_data.get("credentials_valid"):
-                wlab.show()
-                wlab.setText("Credentials invalid")
+                self.showError("Credentials invalid")
                 return
             self.done(1)
             username = msg.data.get("response", {}).get("username")
-            self.mwindow.onLogin(username) 
+            self.mwindow.onLogin(username)
+
+    def clearFeedback(self):
+        """Hide the user feedback label."""
+        self.feedbackWidget.hide()
+
+    def showFeedback(self, text: str, fg: str = "none", bg: str = "none", loading: bool = False):
+        """Show feedback text with a given style and optional circular loader."""
+        self.feedbackLabel.setText(text)
+        self.feedbackWidget.setStyleSheet(f"background-color: {bg}; color: {fg}; font-weight: bold;")
+        self.feedbackWidget.show()
+        if loading:
+            self.feedbackLoader.show()
+        else:
+            self.feedbackLoader.hide()
+
+    def showError(self, text: str) -> None:
+        """Show an error message."""
+        self.showFeedback(text, fg="white", bg="#911d1d")
+
+    def showSuccess(self, text: str) -> None:
+        """Show a success message."""
+        self.showFeedback(text, fg="white", bg="green")

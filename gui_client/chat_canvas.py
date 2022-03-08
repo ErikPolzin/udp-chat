@@ -9,21 +9,12 @@ from PyQt5.QtCore import pyqtSignal, Qt, pyqtSlot
 from PyQt5.QtGui import QIcon, QPixmap
 
 from async_udp_server import UDPMessage
+from .utils import LineWidget
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
 else:
     MainWindow = Any
-
-
-class LineWidget(QFrame):
-    """From https://stackoverflow.com/questions/10053839/how-does-designer-create-a-line-widget."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.setFrameShape(QFrame.HLine)
-        self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
-        self.setStyleSheet("border-color: black;")
 
 
 class ChatCanvas(QFrame):

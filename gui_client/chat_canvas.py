@@ -203,7 +203,10 @@ class ChatCanvas(QFrame):
 
     def onReturnPressed(self) -> None:
         """Enter pressed, send the current message."""
-        txt = self.text_input.text()
+        txt = self.text_input.text().strip()
+        if len(txt) == 0:
+            logging.info("Cannot send empty message.")
+            return
         now = datetime.now()
         uname = self.mwindow.username
         seq_id = self.mwindow.client.bytes_sent

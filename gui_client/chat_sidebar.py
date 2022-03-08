@@ -26,6 +26,8 @@ class ChatSidebar(QDockWidget):
         font-weight: bold;
         font-size: 20px;
     """
+
+    SIDEBAR_SS = "background-color: #454545"
     
     def __init__(self, username, mwindow: 'MainWindow'):
         """Initialize the chat sidebar."""

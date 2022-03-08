@@ -4,7 +4,7 @@ from datetime import datetime
 from queue import Queue
 import logging
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QMainWindow, QStackedWidget, QGridLayout, QLabel, QLineEdit, QPushButton, QDialog, QVBoxLayout
 
 from async_udp_client import ClientChatProtocol
@@ -28,6 +28,10 @@ class MainWindow(QMainWindow):
     Receiving messages: see the 'onReceiveMessage' method.
     Sending messages: self.client.send_message(data | message)
     """
+
+    connectingToServer = pyqtSignal()
+    connectedToServer = pyqtSignal()
+    connectionTimedOut = pyqtSignal()
 
     def __init__(self, server_addr: Address):
         """Initialize the UI."""
@@ -74,7 +78,10 @@ class MainWindow(QMainWindow):
         logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
         # Allow the GUI to receive messages from the client
         self.client.set_receive_listener(self.onReceiveMessage)
-        self.showLogin()
+        if self.first_connect:
+            self.first_connect = False
+            self.showLogin()
+        self.connectingToServer.emit()
 
     def reconnect(self):
         """Re-establish the connection to the server."""
@@ -102,6 +109,7 @@ class MainWindow(QMainWindow):
         self.sidebar_widget.reconnect_widget.show()
         for w in self.chatWindows():
             w.input_cont.setDisabled(True)
+        self.connectionTimedOut.emit()
 
     def onCreatedConnection(self) -> None:
         """Hide the reconnect widget when the connection to the server is lost."""
@@ -113,6 +121,7 @@ class MainWindow(QMainWindow):
         logging.debug(f"{self.message_backlog.qsize()} message(s) in backlog.")
         while not self.message_backlog.empty():
             self.client.send_message(msg=self.message_backlog.get(), on_response=self.onSendMessage)
+        self.connectedToServer.emit()
 
     def onSendMessage(self, response: asyncio.Future):
         """Add a message to the backlog if sending it fails."""

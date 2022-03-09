@@ -35,6 +35,8 @@ class LoginDialog(QDialog):
         border-width: 1px;
     """
 
+    MIN_PASSWORD_LENGTH = 6
+
     def __init__(self, mwindow: 'MainWindow'):
         super().__init__()
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
@@ -108,6 +110,9 @@ class LoginDialog(QDialog):
 
     def create_account(self, username: str, password: str):
         """Request the server to create a new account."""
+        if len(password) < self.MIN_PASSWORD_LENGTH:
+            self.showError("Password is too short!")
+            return
         self.showFeedback("Creating account...", loading=True)
         self.mwindow.client.send_message({
             "type": UDPMessage.MessageType.USR_ADD.value,

@@ -6,6 +6,7 @@
     <file>check-all.png</file>
     <file>check-all-blue.png</file>
     <file>add-group.png</file>
+    <file>clock.png</file>
     <file>loading-circular.gif</file>
 </qresource>
 </RCC>

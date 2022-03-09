@@ -72,6 +72,7 @@ class ChatCanvas(QFrame):
             self.time_sent = time_sent
             self.message_id = message_id
             self.blurb = "No messages yet"
+            self.CHECK_LOADING = QPixmap(":/clock.png").scaledToHeight(12)
             self.CHECK_SINGLE = QPixmap(":/check.png").scaledToHeight(12)
             self.CHECK_DOUBLE = QPixmap(":/check-all.png").scaledToHeight(12)
             self.CHECK_DOUBLE_BLUE = QPixmap(":/check-all-blue.png").scaledToHeight(12)
@@ -92,7 +93,7 @@ class ChatCanvas(QFrame):
             self.text_label.setStyleSheet(self.TEXT_SS)
             self.time_label = QLabel(self.time_sent.strftime("%I:%M %p"))
             self.ack_label = QLabel()
-            self.ack_label.setPixmap(self.CHECK_SINGLE)
+            self.ack_label.setPixmap(self.CHECK_LOADING)
             footer = QWidget()
             footer.setStyleSheet(self.FOOTER_SS)
             footer_layout = QHBoxLayout(footer)
@@ -122,11 +123,11 @@ class ChatCanvas(QFrame):
 
         def acknowledge(self):
             """Acknowledge (=double-tick) a message."""
-            self.ack_label.setPixmap(self.CHECK_DOUBLE)
+            self.ack_label.setPixmap(self.CHECK_SINGLE)
 
         def setReadByAll(self):
             """Mark this message as 'read by all' (blue ticks)."""
-            self.ack_label.setPixmap(self.CHECK_DOUBLE_BLUE)
+            self.ack_label.setPixmap(self.CHECK_DOUBLE)
 
         def setAlignmentAccordingToUsername(self, username: Optional[str]) -> None:
             """ALign the message to left or right, depending on its username."""

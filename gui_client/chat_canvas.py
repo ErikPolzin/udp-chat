@@ -58,21 +58,31 @@ class ChatCanvas(QFrame):
             }
         """
 
-        def __init__(self, seq_id: int, text: str, username: str, time_sent: datetime):
+        def __init__(self,
+                     seq_id: int,
+                     text: str,
+                     username: str,
+                     time_sent: datetime,
+                     rba: bool = False,
+                     message_id: Optional[int] = None):
             """Initialize a message from message data."""
             self.seq_id = seq_id
             self.text = text
             self.username = username
             self.time_sent = time_sent
+            self.message_id = message_id
             self.blurb = "No messages yet"
-            self.CHECK_SINGLE = QPixmap(":/check.png").scaledToHeight(12, Qt.SmoothTransformation)
-            self.CHECK_DOUBLE = QPixmap(":/check-all.png").scaledToHeight(12, Qt.SmoothTransformation)
+            self.CHECK_SINGLE = QPixmap(":/check.png").scaledToHeight(12)
+            self.CHECK_DOUBLE = QPixmap(":/check-all.png").scaledToHeight(12)
+            self.CHECK_DOUBLE_BLUE = QPixmap(":/check-all-blue.png").scaledToHeight(12)
             super().__init__()
             self.setAutoFillBackground(True)
             self.setObjectName("message")
             self.setStyleSheet(self.MESSAGE_SS)
             self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Minimum)
             self.initUI()
+            if rba:
+                self.setReadByAll()
             
         def initUI(self):
             """Initialize message UI."""
@@ -113,6 +123,10 @@ class ChatCanvas(QFrame):
         def acknowledge(self):
             """Acknowledge (=double-tick) a message."""
             self.ack_label.setPixmap(self.CHECK_DOUBLE)
+
+        def setReadByAll(self):
+            """Mark this message as 'read by all' (blue ticks)."""
+            self.ack_label.setPixmap(self.CHECK_DOUBLE_BLUE)
 
         def setAlignmentAccordingToUsername(self, username: Optional[str]) -> None:
             """ALign the message to left or right, depending on its username."""
@@ -180,25 +194,34 @@ class ChatCanvas(QFrame):
                    text: str,
                    username: str,
                    date_sent: datetime,
-                   ack: bool = False
+                   ack: bool = False,
+                   rba: bool = False,
+                   mid: Optional[int] = None,
                    ) -> MessageWidget:
         """Add a message to the canvas."""
         if seq_id in self.unacknowledged_messages:
             unack_msg = self.unacknowledged_messages[seq_id]
             # It is technically possible (but unlikely) for SEQNs to clash,
-            # so perform a quick cjeck to test whether message text is a match
+            # so perform a quick check to test whether message text is a match
             # before acknowledging.
             if unack_msg.text == text:
+                unack_msg.message_id = mid
                 unack_msg.acknowledge()
+                if rba:
+                    unack_msg.setReadByAll()
                 return unack_msg
-        widget = self.MessageWidget(seq_id, text, username, date_sent)
+        widget = self.MessageWidget(seq_id, text, username, date_sent, message_id=mid)
         insert_index = self.view_layout.count()
         self.view_layout.insertWidget(insert_index, widget)
         prev_msg = self.view_layout.itemAt(insert_index-1).widget()
         if isinstance(prev_msg, self.MessageWidget):
             widget.setPreviousMessage(prev_msg, self.view_layout, insert_index)
+        if mid is not None:
+            widget.message_id = mid
         if ack:
             widget.acknowledge()
+        if rba:
+            widget.setReadByAll()
         widget.setAlignmentAccordingToUsername(self.mwindow.username)
         # Change the vlurb and notify listeners
         self.blurb = text
@@ -246,6 +269,18 @@ class ChatCanvas(QFrame):
             msg: UDPMessage = resp.result()
             for hmsg in msg.data.get("response", []):
                 timesent = datetime.fromisoformat(hmsg["Date_Sent"])
+                mid = hmsg["MessageID"]
+                rba = hmsg["Read_By_All"]
+                uname = hmsg["Username"]
                 self.addMessage(
-                    -1, hmsg["Text"], hmsg["Username"], timesent, ack=True)
+                    -1, hmsg["Text"], uname, timesent, ack=True, rba=rba, mid=mid)
+
+    def getMessageByID(self, mid: int) -> Optional[MessageWidget]:
+        """Find a message by message ID."""
+        for i in range(self.view_layout.count()):
+            msg = self.view_layout.itemAt(i).widget()
+            if isinstance(msg, self.MessageWidget):
+                if msg.message_id == mid:
+                    return msg
+        return None
 

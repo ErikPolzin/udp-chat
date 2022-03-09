@@ -68,12 +68,24 @@ class MainWindow(QMainWindow):
                 time_sent = datetime.fromisoformat(msg.data["time_sent"])
                 seqn = int(msg.data["msg_seqn"])
                 group = str(msg.data["group"])
+                mid = int(msg.data["MessageID"])
             except KeyError as k:
                 logging.warning(f"Received improperly formatted message (missing '{k}'")
                 return
             w = self.getChatWindow(group)
             if w:
-                w.addMessage(seqn, text, username, time_sent, ack=True)
+                w.addMessage(seqn, text, username, time_sent, ack=True, mid=mid)
+        elif msg.type == UDPMessage.MessageType.MSG_RBA:
+            if msg.data is None:
+                logging.warning("Received message with no data!")
+                return
+            group = str(msg.data["group"])
+            mid = int(msg.data["MessageID"])
+            w = self.getChatWindow(group)
+            if w:
+                msgw = w.getMessageByID(mid)
+                if msgw:
+                    msgw.setReadByAll()
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
@@ -162,6 +174,7 @@ class MainWindow(QMainWindow):
     def onLogin(self, username: str) -> None:
         """Callback once the user has logged in."""
         self.username = username
+        self.client.username = username
         self.showMaximized()
         self.fetchGroups()
         self.sidebar_widget.setUsername(self.username) 

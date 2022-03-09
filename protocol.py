@@ -49,6 +49,7 @@ class UDPMessage(object):
         USR_LOGIN = "USR_LOGIN" # Request to veryify user credentials
         USR_ADD = "USR_ADD"  # Request to create a new user
         USR_LST = "USR_LST"  # Request a list of all usernames
+        MSG_RBA = "MSG_RBA"  # Message read by all group members
 
     def __init__(self, header: UDPHeader, data: Optional[Dict] = None):
         """Initialize a chat message from header and data."""
@@ -180,6 +181,18 @@ class TimeoutRetransmissionProtocol(asyncio.Protocol):
         msg = UDPMessage.from_bytes(data)
         # Received an ack, try stop the timer
         if msg.header.ACK:
+            # Only really relevant for the server protocol: when receiving
+            # an message ACK from a client, the message should be marked as 'read'
+            # or 'delivered'.
+            if msg.data:
+                uname = msg.data.get("username")
+                mid = msg.data.get("MessageID")
+                group = msg.data.get("group")
+                if uname and mid is not None and group:
+                    self.on_receive_ack(str(group), str(uname), int(mid))
+                    # Notify listeners that an RBA message has come through
+                    if self.on_receive_message_listener is not None:
+                        self.on_receive_message_listener(msg)
             future_response = self.future_responses.get(msg.header.SEQN)
             # Stop running the timer task
             if future_response is not None:
@@ -197,3 +210,7 @@ class TimeoutRetransmissionProtocol(asyncio.Protocol):
     def set_receive_listener(self, listener: Callable[[UDPMessage], None]):
         """Set an external listener for incoming UDP messages."""
         self.on_receive_message_listener = listener
+
+    def on_receive_ack(self, group: str, uname: str, mid: int) -> None:
+        """Abstract method. Reimplemented in the server protocol."""
+        pass

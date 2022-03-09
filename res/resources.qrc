@@ -4,6 +4,7 @@
     <file>send.png</file>
     <file>check.png</file>
     <file>check-all.png</file>
+    <file>check-all-blue.png</file>
     <file>add-group.png</file>
     <file>loading-circular.gif</file>
 </qresource>

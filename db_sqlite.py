@@ -1,4 +1,4 @@
-from typing import Dict, Iterable, List, Optional, Tuple, Generator
+from typing import Dict, Iterable, List, Optional, Tuple, Generator, Union
 from datetime import datetime
 from exceptions import ItemNotFoundException
 import sqlite3
@@ -42,18 +42,25 @@ class DatabaseController(object):
             RoomID INTEGER NOT NULL,
             UserID INTEGER NOT NULL,
             Text TEXT NOT NULL,
-            Date_Sent INTEGER NOT NULL
+            Date_Sent INTEGER NOT NULL,
+            Read_By_All INTEGER DEFAULT 0
+            );"""
+        delivered_query = """CREATE TABLE IF NOT EXISTS DeliveredTo (
+            MessageID INTEGER NOT NULL,
+            Username TEXT NOT NULL,
+            UNIQUE(MessageID, Username)
             );"""
         with self.connection() as conn:
             self.execute_query(conn, user_query)
             self.execute_query(conn, group_query)
             self.execute_query(conn, member_query)
             self.execute_query(conn, message_query)
-            # Add the root user if they don't exist yet
-            try:
-                self.get_user_id_by_name(conn, "root")
-            except ItemNotFoundException:
-                self.new_user("root", "root", '')
+            self.execute_query(conn, delivered_query)
+            # # Add the root user if they don't exist yet
+            # try:
+            #     self.get_user_id_by_name(conn, "root")
+            # except ItemNotFoundException:
+            #     self.new_user("root", "root", '')
             # Create the default group if there are no groups in the DB
             if len(self.group_names()) == 0:
                 logging.info("Creating default group.")
@@ -122,21 +129,74 @@ class DatabaseController(object):
                 self.update_user_address(con, user_name, addr)
         return correct_password
 
-    def message_history(self, room_name: str) -> Generator[Dict, None, None]:
+    def message_history(
+            self, room_name: str, username: str
+        ) -> Generator[Tuple[Dict, bool], None, None]:
         """Return message history as a list of dictionaries."""
+        members = self.num_members(room_name)
         with self.connection() as con:
             room_id = self.get_room_id_by_name(con, room_name)
             query = """
-            SELECT User.Username, Message.Text, datetime(Message.Date_Sent)
+            SELECT Message.MessageID, User.Username, Message.Text,
+            datetime(Message.Date_Sent), Message.Read_By_All
             FROM Message INNER JOIN User
             ON Message.UserID = User.UserID
             WHERE Message.RoomID = ?;"""
             for r in self.read_query(con, query, (room_id,)):
+                mid, uname, mtext, date_sent, rba = r
+                rba_changed = False
+                # Fetching messages from the server counts as reading them
+                if self.mark_message_as_read(username, mid, members):
+                    rba = 1
+                    rba_changed = True
                 yield {
-                    "Username": r[0],
-                    "Text": r[1],
-                    "Date_Sent": r[2],
-                }
+                    "MessageID": mid,
+                    "Username": uname,
+                    "Text": mtext,
+                    "Date_Sent": date_sent,
+                    "Read_By_All": bool(rba)
+                }, rba_changed
+
+    def mark_message_as_read(self, uname: str, mid: int, members: Optional[int] = None) -> bool:
+        """Mark one or more messages as read by a user."""
+        insert_query = "INSERT OR IGNORE INTO DeliveredTo (MessageID, Username) VALUES (?, ?);"
+        delete_query = "DELETE FROM DeliveredTo WHERE MessageID = ?;"
+        set_rba_query = "UPDATE Message SET Read_By_All=? WHERE MessageID=?;"
+        get_msg_query = "SELECT RoomID, Read_By_All FROM Message WHERE MessageID = ?;"
+        get_nread_query = "SELECT COUNT(*) FROM DeliveredTo WHERE MessageID = ?;"
+        get_nmembers_query = "SELECT COUNT(*) FROM Member WHERE RoomID = ?;"
+        with self.connection() as con:
+            # Get the group ID and readbyall status of this message
+            gid, rba = con.cursor().execute(get_msg_query, [mid]).fetchone()
+            if rba == 1:
+                # Already read by all, no need to update anything
+                return False
+            # Get the number of members in this group
+            num_members: int = 0
+            if members is None:
+                num_members = con.cursor().execute(get_nmembers_query, [gid]).fetchone()[0]
+            else:
+                num_members = members
+            # Insert the delivered row, to indicate message read by this user
+            logging.debug(f"Marking message {mid} as read by {uname}")
+            self.execute_query(con, insert_query, (mid, uname))
+            # Get the number of users who have now read this message
+            n_read_by: int = con.cursor().execute(get_nread_query, [mid]).fetchone()[0]
+            if num_members == n_read_by:
+                # Mark message as RBA
+                self.execute_query(con, set_rba_query, (1, mid))
+                # Remove the delivered rows to save space, message has been marked as RBA
+                self.execute_query(con, delete_query, (mid,))
+                return True
+        return False
+
+    def num_members(self, room_name: str) -> int:
+        """Get the number of members in a room."""
+        get_nmembers_query = "SELECT COUNT(*) FROM Member WHERE RoomID = ?"
+        with self.connection() as con:
+            room_id = self.get_room_id_by_name(con, room_name)
+            return self.read_query(con, get_nmembers_query, (room_id,))[0][0]
+        return -1
 
     def group_history(self, user_name: str) -> Generator[Dict, None, None]:
         """Return message history as a list of dictionaries."""
@@ -165,10 +225,9 @@ class DatabaseController(object):
         """Open a new connection to the database, or log an error."""
         return sqlite3.connect(self.db_name)
 
-    def execute_query(self,
-                      c: sqlite3.Connection,
-                      query: str,
-                      values: Optional[Iterable]=None) -> sqlite3.Cursor:
+    def execute_query(
+            self, c: sqlite3.Connection, query: str, values: Optional[Iterable] = None
+        ) -> sqlite3.Cursor:
         """Execute and commit a query to the database."""
         cursor: sqlite3.Cursor = c.cursor()
         if values is not None:

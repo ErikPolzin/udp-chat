@@ -66,10 +66,22 @@ class ClientChatProtocol(TimeoutRetransmissionProtocol):
         If the client receives a chat message, it must acknowledge it with the server.
         """
         if super().datagram_received(data, addr):
+            if not self.transport:
+                return False
             msg = UDPMessage.from_bytes(data)
-            if msg.type == UDPMessage.MessageType.CHT and self.transport:
-                # Send an ack to the server
-                ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True, SYN=False), {})
+            if msg.type == UDPMessage.MessageType.CHT and msg.data:
+                # Send an ack to the server, echoing data back
+                ack_data = {
+                    "MessageID": msg.data.get("MessageID"),
+                    "group": msg.data.get("group"),
+                    "username": self.username,
+                }
+                ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True), ack_data)
+                self.transport.sendto(ack_msg.to_bytes(), addr)
+            # Client received confirmation that a message was read by all members
+            if msg.type == UDPMessage.MessageType.MSG_RBA:
+                # Acknowledge the client has received this packet
+                ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True), {})
                 self.transport.sendto(ack_msg.to_bytes(), addr)
             return True
         return False

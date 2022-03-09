@@ -43,6 +43,13 @@ class SqliteGroupLayer(object):
             # Otherwise multiple messages will be sent with the same SEQN
             msg.header = UDPHeader(SEQN=self.protocol.bytes_sent)
 
+    def group_rba(self, group: str, message_id: int) -> None:
+        """Notify a group that a message has been real by all members."""
+        logging.debug(f"Send RBA to group '{group}'")
+        for addr in self.db_controller.get_addresses_for_group(group):
+            data = {"type": "MSG_RBA", "group": group, "MessageID": message_id}
+            msg = UDPMessage(UDPHeader(self.protocol.bytes_sent), data)
+            self.protocol.send_message(msg=msg, addr=addr, verify_delay=2)
 
 class ServerChatProtocol(TimeoutRetransmissionProtocol):
     """Server-side chat protocol.
@@ -120,9 +127,11 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
             if "time_sent" in msg.data:
                 time_sent = datetime.fromisoformat(msg.data["time_sent"])
             try:
-                self.db_controller.new_message(group_name, user_name, text, time_sent)
+                mid = self.db_controller.new_message(group_name, user_name, text, time_sent)
             except Exception as e:
                 return 500, None, f"Unable to save message: {e}"
+            # Save a reference to the message ID
+            msg.data["MessageID"] = mid
             # Save a reference to the sequence number of the message
             msg.data["msg_seqn"] = msg.header.SEQN
             self.group_layer.group_send(group_name, msg)
@@ -149,7 +158,16 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
             except ItemNotFoundException:
                 return 400, None, "Group with this name already exists"
         elif mtype == UDPMessage.MessageType.MSG_HST:
-            message_history = list(self.db_controller.message_history(group_name))
+            # Bear in mind that a user fetching message history (for the purposes
+            # of this application) is the same as them reading a message.
+            # After each message has been fetched from the database, the server
+            # checked to see whether it has been read by all, then sends an RBA broadcast
+            message_history = []
+            for message, rba_changed in self.db_controller.message_history(group_name, user_name):
+                message_history.append(message)
+                if rba_changed:
+                    mid = int(message["MessageID"])
+                    self.group_layer.group_rba(group_name, mid)
             return 200, message_history, None
         elif mtype == UDPMessage.MessageType.USR_LST:
             user_list = list(self.db_controller.user_list())
@@ -174,6 +192,12 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
         """De-register an address if a request to a 'client' times out."""
         if addr is not None:
             self.db_controller.deregister_address(addr)
+
+    def on_receive_ack(self, group: str, uname: str, mid: int) -> None:
+        """Received a message acknowledgement from a client."""
+        if self.db_controller.mark_message_as_read(uname, mid):
+            # Send an RBA if this was the last user to read this message
+            self.group_layer.group_rba(group, mid)
 
 
 def get_host_and_port(random_port=False) -> Address:

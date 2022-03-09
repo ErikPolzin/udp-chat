@@ -79,7 +79,7 @@ class ClientChatProtocol(TimeoutRetransmissionProtocol):
                 ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True), ack_data)
                 self.transport.sendto(ack_msg.to_bytes(), addr)
             # Client received confirmation that a message was read by all members
-            if msg.type == UDPMessage.MessageType.MSG_RBA:
+            if msg.type in (UDPMessage.MessageType.MSG_RBA, UDPMessage.MessageType.GRP_ADD):
                 # Acknowledge the client has received this packet
                 ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True), {})
                 self.transport.sendto(ack_msg.to_bytes(), addr)

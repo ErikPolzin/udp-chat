@@ -132,8 +132,6 @@ class ChatSidebar(QDockWidget):
             if msg.data.get("error"):
                 self.group_warning_label.show()
                 self.group_warning_label.setText(msg.data.get("error"))
-            elif msg.data.get("status") == 200:
-                self.onCreateGroup(msg.data["response"]["group"])
 
     def onCreateGroup(self, group_name: str) -> None:
         """Run when a group is created."""
@@ -143,6 +141,7 @@ class ChatSidebar(QDockWidget):
         tab = self.addChatWindow(new_chat_window)
         self.setActiveTab(tab, new_chat_window)
         self.new_group_widget.hide()
+        self.group_warning_label.hide()
 
     def addChatWindow(self, chat_window: ChatCanvas) -> QFrame:
         """Register a chat window in the sidebar."""
@@ -186,6 +185,9 @@ class ChatSidebar(QDockWidget):
             logging.warning("Timed out fetching usernames")
             self.member_list.hide()
             return
+        # Reset the member list layout
+        for i in range(self.member_list.layout().count()-1, -1, -1):
+            self.member_list.layout().itemAt(i).widget().setParent(None)
         msg: UDPMessage = resp.result()
         if msg.data is None:
             return

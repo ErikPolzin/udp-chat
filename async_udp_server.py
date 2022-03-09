@@ -19,10 +19,9 @@ class SqliteGroupLayer(object):
         self.protocol = protocol
         self.db_controller = db_controller
 
-    def group_add(self, group: str, user_name: str, members: List[str]) -> None:
+    def group_add(self, group: str, members: List[str]) -> None:
         """Register a channel in a new group."""
-        self.db_controller.new_group(group, user_name)
-        logging.info(f"{user_name} created new group: '{group}'")
+        self.db_controller.new_group(group)
         # Extremely inefficient but let's keep it simple
         for mname in members:
             self.group_sub(group, mname)
@@ -30,6 +29,12 @@ class SqliteGroupLayer(object):
     def group_sub(self, group: str, username: str) -> None:
         """Register a channel in an existing group."""
         self.db_controller.new_member(username, group)
+        addr = self.db_controller.addr_for_user(username)
+        if addr:
+            self.protocol.send_message({
+                "type": "GRP_ADD",
+                "group": group
+            }, addr=addr, verify_delay=2)
         logging.info(f"Subscribe {username} to group '{group}'")
 
     def group_send(self, group: str, msg: UDPMessage) -> None:
@@ -123,9 +128,11 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
             text = msg.data.get("text")
             if not isinstance(text, str):
                 return 400, None, "No text specified"
+            # Try parse the tmessage's send time, or pick current server time
             time_sent = datetime.now()
             if "time_sent" in msg.data:
                 time_sent = datetime.fromisoformat(msg.data["time_sent"])
+            # Persist the message to the database
             try:
                 mid = self.db_controller.new_message(group_name, user_name, text, time_sent)
             except Exception as e:
@@ -140,8 +147,11 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
         elif mtype == UDPMessage.MessageType.GRP_ADD:
             try:
                 members = msg.data.get("members", [])
-                self.group_layer.group_add(group_name, user_name, members)
-                logging.info(f"Created new group '{group_name}'")
+                # Add the creator to the members if they arent listed already
+                if user_name not in members:
+                    members.append(user_name)
+                self.group_layer.group_add(group_name, members)
+                logging.info(f"{user_name} created new group: '{group_name}'")
                 return 200, {"group": group_name}, None
             except ItemAlreadyExistsException:
                 return 400, None, "Group with this name already exists"

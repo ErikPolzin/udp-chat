@@ -82,16 +82,12 @@ class DatabaseController(object):
 
     def new_group(self,
                   group_name: str,
-                  user_name: Optional[str] = None,
                   group_password: Optional[str] = None) -> int:
         """Create a new group row."""
         create_room = "INSERT INTO Room (Name, Password, Date_Created) VALUES (?, ?, ?);"
         with self.connection() as con:
             cur = self.execute_query(con, create_room, (group_name, group_password, datetime.now()))
-            group_id = cur.lastrowid
-            if user_name is not None:
-                self.new_member(user_name, group_name)
-            return group_id
+            return cur.lastrowid
         return -1
 
     def new_member(self, user_name: str, group_name: str) -> int:
@@ -300,6 +296,17 @@ class DatabaseController(object):
         str_addr = f"{addr[0]}:{addr[1]}"
         self.execute_query(con, query, (str_addr, username))
         logging.debug(f"Updated {username}'s address to {addr}")
+
+    def addr_for_user(self, username: str) -> Optional[Address]:
+        """Fetch the last seen address for a user."""
+        addr_for_user_query = "SELECT Address FROM User WHERE Username = ?;"
+        with self.connection() as con:
+            str_addr = con.cursor().execute(addr_for_user_query, (username,)).fetchone()[0]
+            if str_addr:
+                urllib_addr = urllib.parse.urlsplit('//' + str_addr)
+                if urllib_addr.hostname is not None and urllib_addr.port is not None:
+                    return (urllib_addr.hostname, urllib_addr.port)
+        return None
 
     def deregister_address(self, addr: Address) -> None:
         """De-register addresses, typiclly after the server fails to reach them."""

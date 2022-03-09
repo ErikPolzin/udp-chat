@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
         self.message_backlog: Queue[UDPMessage] = Queue()
         self.first_connect = True
         self.username = None
+        self.groups = set()
 
         self.content_widget = QStackedWidget()
         self.content_widget.setContentsMargins(0, 0, 0, 0)
@@ -58,6 +59,7 @@ class MainWindow(QMainWindow):
 
     def onReceiveMessage(self, msg: UDPMessage) -> None:
         """Client received a new message."""
+        # GUI received a new chat message
         if msg.type == UDPMessage.MessageType.CHT:
             if msg.data is None:
                 logging.warning("Received message with no data!")
@@ -75,6 +77,7 @@ class MainWindow(QMainWindow):
             w = self.getChatWindow(group)
             if w:
                 w.addMessage(seqn, text, username, time_sent, ack=True, mid=mid)
+        # A message was delivered to all recipients
         elif msg.type == UDPMessage.MessageType.MSG_RBA:
             if msg.data is None:
                 logging.warning("Received message with no data!")
@@ -86,6 +89,11 @@ class MainWindow(QMainWindow):
                 msgw = w.getMessageByID(mid)
                 if msgw:
                     msgw.setReadByAll()
+        # The user was added to a new group
+        elif msg.type == UDPMessage.MessageType.GRP_ADD:
+            if msg.data and "group" in msg.data:
+                self.groups.add(msg.data["group"])
+                self.sidebar_widget.onCreateGroup(msg.data["group"])
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
@@ -154,9 +162,9 @@ class MainWindow(QMainWindow):
         self.client.send_message({
             "type": UDPMessage.MessageType.GRP_HST.value,
             "username": self.username,
-        }, on_response=self.onFetchedGroups)
+        }, on_response=self.onFetchGroups)
 
-    def onFetchedGroups(self, resp3: asyncio.Future):
+    def onFetchGroups(self, resp3: asyncio.Future):
         """Request historical messages from the server's database."""
         if resp3.exception():
             wlab = self.sidebar_widget.group_warning_label
@@ -164,10 +172,14 @@ class MainWindow(QMainWindow):
             wlab.setText("Error retrieving groups.")
         else:
             msg: UDPMessage = resp3.result()
-            for g in msg.data.get("response", []):
-                window = ChatCanvas(g["Name"], self)
-                self.content_widget.addWidget(window)
-                self.sidebar_widget.addChatWindow(window)
+            for g in msg.data.get("response", {}):
+                gname = g["Name"]
+                # Make sure the group hasn't already been fetched
+                if gname not in self.groups:
+                    self.groups.add(gname)
+                    window = ChatCanvas(gname, self)
+                    self.content_widget.addWidget(window)
+                    self.sidebar_widget.addChatWindow(window)
             for w in self.chatWindows():
                 w.retrieveHistoricalMessages()
 

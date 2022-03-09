@@ -87,7 +87,7 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
 
     def client_connection_terminated(self, addr: Address) -> None:
         """Signalled to close the connection to the server."""
-        pass
+        self.db_controller.deregister_address(addr)
 
     def datagram_received(self, data: bytes, addr: Address) -> bool:
         """Received a datagram from the chat's socket."""

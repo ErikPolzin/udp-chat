@@ -5,10 +5,11 @@ from queue import Queue
 import logging
 
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import QMainWindow, QStackedWidget
 
 from async_udp_client import ClientChatProtocol
-from protocol import Address, UDPMessage
+from protocol import Address, UDPHeader, UDPMessage
 
 from .chat_sidebar import ChatSidebar
 from .chat_canvas import ChatCanvas
@@ -189,4 +190,10 @@ class MainWindow(QMainWindow):
         self.client.username = username
         self.showMaximized()
         self.fetchGroups()
-        self.sidebar_widget.setUsername(self.username) 
+        self.sidebar_widget.setUsername(self.username)
+
+    def closeEvent(self, a0: QCloseEvent) -> None:
+        """Send a FIN message before closing the app."""
+        if self.client.transport:
+            self.client.transport.sendto(UDPHeader(-1, FIN=True).to_bytes())
+        return super().closeEvent(a0)

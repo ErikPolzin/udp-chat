@@ -1,5 +1,5 @@
 """Utility widgets used by other parts of the GUI."""
-from PyQt5.QtCore import QSize, QRect
+from PyQt5.QtCore import QSize
 from PyQt5.QtWidgets import QLabel, QFrame, QSizePolicy
 from PyQt5.QtGui import QMovie
 

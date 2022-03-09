@@ -5,10 +5,10 @@ from queue import Queue
 import logging
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QMainWindow, QStackedWidget, QGridLayout, QLabel, QLineEdit, QPushButton, QDialog, QVBoxLayout
+from PyQt5.QtWidgets import QMainWindow, QStackedWidget
 
 from async_udp_client import ClientChatProtocol
-from async_udp_server import Address, UDPMessage
+from protocol import Address, UDPMessage
 
 from .chat_sidebar import ChatSidebar
 from .chat_canvas import ChatCanvas
@@ -56,23 +56,28 @@ class MainWindow(QMainWindow):
         self.login_dialog.setModal(True)
         self.login_dialog.show()
 
-    def onReceiveMessage(self, msg: UDPMessage):
+    def onReceiveMessage(self, msg: UDPMessage) -> None:
         """Client received a new message."""
         if msg.type == UDPMessage.MessageType.CHT:
+            if msg.data is None:
+                logging.warning("Received message with no data!")
+                return
             try:
-                text = msg.data["text"]
-                username = msg.data["username"]
+                text = str(msg.data["text"])
+                username = str(msg.data["username"])
                 time_sent = datetime.fromisoformat(msg.data["time_sent"])
+                seqn = int(msg.data["msg_seqn"])
+                group = str(msg.data["group"])
             except KeyError as k:
                 logging.warning(f"Received improperly formatted message (missing '{k}'")
                 return
-            w = self.getChatWindow(msg.data.get("group"))
+            w = self.getChatWindow(group)
             if w:
-                w.addMessage(msg.header.SEQN, text, username, time_sent, ack=True)
+                w.addMessage(seqn, text, username, time_sent, ack=True)
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
-        self.client: ClientChatProtocol = await ClientChatProtocol.create(server_addr)
+        self.client: ClientChatProtocol = await ClientChatProtocol.create(server_addr, self.username)
         self.client.on_con_lost.add_done_callback(self.onLostConnection)
         self.client.add_server_connected_listener(self.onCreatedConnection)
         logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
@@ -126,11 +131,12 @@ class MainWindow(QMainWindow):
     def onSendMessage(self, response: asyncio.Future):
         """Add a message to the backlog if sending it fails."""
         if isinstance(response.exception(), RequestTimedOutException):
-            msg: UDPMessage = response.request
-            # Add the message to the backlog - it will be sent again once reconnected
-            if msg.type == UDPMessage.MessageType.CHT:
-                logging.debug("Added message to backlog")
-                self.message_backlog.put(msg)
+            if hasattr(response, "request"):
+                msg: UDPMessage = response.request
+                # Add the message to the backlog - it will be sent again once reconnected
+                if msg.type == UDPMessage.MessageType.CHT:
+                    logging.debug("Added message to backlog")
+                    self.message_backlog.put(msg)
 
     def fetchGroups(self) -> None:
         self.client.send_message({

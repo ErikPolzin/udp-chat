@@ -1,14 +1,15 @@
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Generator
 from datetime import datetime
 from exceptions import ItemNotFoundException
 import sqlite3
-from sqlite3 import Error
 import logging
 import urllib.parse
 import os
 import hashlib
 import hmac
 import base64
+
+from protocol import Address
 
 class DatabaseController(object):
 
@@ -70,8 +71,12 @@ class DatabaseController(object):
             m_id = cursor.lastrowid
             logging.debug(f"Saved message {m_id}")
             return m_id
+        return -1
 
-    def new_group(self, group_name: str, user_name: str = None, group_password: str = None) -> int:
+    def new_group(self,
+                  group_name: str,
+                  user_name: Optional[str] = None,
+                  group_password: Optional[str] = None) -> int:
         """Create a new group row."""
         create_room = "INSERT INTO Room (Name, Password, Date_Created) VALUES (?, ?, ?);"
         with self.connection() as con:
@@ -80,6 +85,7 @@ class DatabaseController(object):
             if user_name is not None:
                 self.new_member(user_name, group_name)
             return group_id
+        return -1
 
     def new_member(self, user_name: str, group_name: str) -> int:
         """Create a new member row."""
@@ -89,10 +95,12 @@ class DatabaseController(object):
             group_id = self.get_room_id_by_name(con, group_name)
             cur = self.execute_query(con, query, (user_id, group_id))
             return cur.lastrowid
+        return -1
 
     def new_user(self, user_name: str, password: str, address: str) -> bool:
         """Create a new user row. Returns true if created new user."""
         query = "SELECT Username FROM User WHERE Username = ? LIMIT 1;"
+        result = []
         with self.connection() as con:
             result = self.read_query(con, query, (user_name,))
         if len(result) == 0:
@@ -104,8 +112,9 @@ class DatabaseController(object):
             return True
         return False
 
-    def user_login(self, user_name: str, password: str, addr: Tuple) -> str:
-        """Attempt to log in user"""
+    def user_login(self, user_name: str, password: str, addr: Address) -> bool:
+        """Attempt to log in user."""
+        correct_password = False
         with self.connection() as con:
             correct_password = self.verify_user_credentials(con, user_name, password)
             if correct_password:
@@ -113,7 +122,7 @@ class DatabaseController(object):
                 self.update_user_address(con, user_name, addr)
         return correct_password
 
-    def message_history(self, room_name: str) -> Dict:
+    def message_history(self, room_name: str) -> Generator[Dict, None, None]:
         """Return message history as a list of dictionaries."""
         with self.connection() as con:
             room_id = self.get_room_id_by_name(con, room_name)
@@ -129,7 +138,7 @@ class DatabaseController(object):
                     "Date_Sent": r[2],
                 }
 
-    def group_history(self, user_name: str) -> Dict:
+    def group_history(self, user_name: str) -> Generator[Dict, None, None]:
         """Return message history as a list of dictionaries."""
         with self.connection() as con:
             user_id = self.get_user_id_by_name(con, user_name)
@@ -150,17 +159,16 @@ class DatabaseController(object):
         with self.connection() as con:
             results = self.read_query(con, query)
             return [r[0] for r in results]
+        return []
 
     def connection(self) -> sqlite3.Connection:
         """Open a new connection to the database, or log an error."""
-        c = None
-        try:
-            c = sqlite3.connect(self.db_name)
-        except Error as err:
-            logging.error(f"Connection error: '{err}'")
-        return c
+        return sqlite3.connect(self.db_name)
 
-    def execute_query(self, c: sqlite3.Connection, query: str, values: List=None) -> sqlite3.Cursor:
+    def execute_query(self,
+                      c: sqlite3.Connection,
+                      query: str,
+                      values: Optional[Iterable]=None) -> sqlite3.Cursor:
         """Execute and commit a query to the database."""
         cursor: sqlite3.Cursor = c.cursor()
         if values is not None:
@@ -170,7 +178,11 @@ class DatabaseController(object):
         c.commit()
         return cursor   
 
-    def read_query(self, c: sqlite3.Connection, query: str, values: List=None, **kwargs) -> List[Tuple]:
+    def read_query(self,
+                   c: sqlite3.Connection,
+                   query: str,
+                   values: Optional[Iterable] = None,
+                   **kwargs) -> List[Tuple]:
         """Fetch all results from a query, or log an error."""
         cursor: sqlite3.Cursor = c.cursor(**kwargs)
         cursor.execute(query, values or [])
@@ -202,7 +214,7 @@ class DatabaseController(object):
         salt, hash = hashed_pwrd.split("$")
         return self.is_correct_password(salt, hash, password)
 
-    def get_addresses_for_group(self, group_name: str) -> List[Tuple]:
+    def get_addresses_for_group(self, group_name: str) -> List[Address]:
         """Return a list of addresses for a group."""
         get_addresses_query = """
             SELECT User.Address
@@ -211,26 +223,39 @@ class DatabaseController(object):
             INNER JOIN User
             ON Member.UserID = User.UserID
             WHERE Room.Name = ?;"""
+        tuple_addresses = []
         with self.connection() as c:
             str_addresses = self.read_query(c, get_addresses_query, (group_name,))
-            tuple_addresses = []
             for str_addr in str_addresses:
+                # Skip empty or null addresses - wouldn't want to send to those
+                if not str_addr[0]:
+                    continue
                 result = urllib.parse.urlsplit('//' + str_addr[0])
                 if result.hostname is not None and result.port is not None:
                     tuple_addresses.append((result.hostname, result.port))
         return tuple_addresses
 
-    def update_user_address(self, con: sqlite3.Connection, username: str, addr: tuple) -> None:
+    def update_user_address(self, con: sqlite3.Connection, username: str, addr: Address) -> None:
         """Update a user's last seen IP address and port."""
         query = "UPDATE User SET Address=? WHERE Username=?;"
         str_addr = f"{addr[0]}:{addr[1]}"
         self.execute_query(con, query, (str_addr, username))
+        logging.debug(f"Updated {username}'s address to {addr}")
 
-    def user_list(self):
+    def deregister_address(self, addr: Address) -> None:
+        """De-register addresses, typiclly after the server fails to reach them."""
+        query = "UPDATE User SET Address=NULL WHERE Address=?;"
+        with self.connection() as con:
+            str_addr = f"{addr[0]}:{addr[1]}"
+            self.execute_query(con, query, (str_addr,))
+            logging.info(f"De-registered address {str_addr}")
+
+    def user_list(self) -> List[str]:
         """Fetch a list of users from the database."""
         user_list_query = "SELECT User.Username FROM User"
         with self.connection() as c:
             return [i[0] for i in self.read_query(c, user_list_query)]
+        return []
 
     def hash_new_password(self, password: str) -> Tuple[str, str]:
         """

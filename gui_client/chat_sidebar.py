@@ -6,8 +6,7 @@ from PyQt5.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QLabel, QLineEdit
 from PyQt5.QtWidgets import QPushButton, QSizePolicy, QFrame, QHBoxLayout, QGroupBox
 from PyQt5.QtGui import QIcon
 
-from async_udp_server import UDPMessage
-
+from protocol import UDPMessage
 from .chat_canvas import ChatCanvas
 
 if TYPE_CHECKING:
@@ -181,13 +180,15 @@ class ChatSidebar(QDockWidget):
             "type": UDPMessage.MessageType.USR_LST.value,
         }, on_response=self.onFetchUsers)
 
-    def onFetchUsers(self, resp: asyncio.Future):
+    def onFetchUsers(self, resp: asyncio.Future) -> None:
         """Server returned a list of users, or an error."""
         if resp.exception():
             logging.warning("Timed out fetching usernames")
             self.member_list.hide()
             return
         msg: UDPMessage = resp.result()
+        if msg.data is None:
+            return
         response_code = msg.data.get("status")
         usernames = msg.data.get("response", [])
         if response_code != 200:

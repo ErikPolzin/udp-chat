@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QWidget, QHBoxLayout, QGridLayout
 
-from async_udp_server import UDPMessage
+from protocol import UDPMessage
 from gui_client.utils import CircularSpinner
 
 if TYPE_CHECKING:
@@ -126,6 +126,8 @@ class LoginDialog(QDialog):
             self.showError("Could not reach server..")
             return
         msg: UDPMessage = resp.result()
+        if msg.data is None:
+            return
         g = msg.data.get("response", {})
         created = g.get("created_user", False)
         if not created:
@@ -148,6 +150,8 @@ class LoginDialog(QDialog):
             self.showError("Could not contact server.")
             return
         msg: UDPMessage = resp.result()
+        if msg.data is None:
+            return
         response_code = msg.data.get("status")
         response_data = msg.data.get("response", {})
         if response_code != 200:
@@ -158,7 +162,8 @@ class LoginDialog(QDialog):
                 return
             self.done(1)
             username = msg.data.get("response", {}).get("username")
-            self.mwindow.onLogin(username)
+            if username is not None:
+                self.mwindow.onLogin(username)
 
     def clearFeedback(self):
         """Hide the user feedback label."""

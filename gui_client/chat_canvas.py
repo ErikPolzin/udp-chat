@@ -1,14 +1,14 @@
 import asyncio
 from datetime import datetime
 import logging
-from typing import TYPE_CHECKING, Dict, Any
+from typing import TYPE_CHECKING, Dict, Any, Optional
 
 from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton, QApplication
 from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
 from PyQt5.QtCore import pyqtSignal, Qt, pyqtSlot
 from PyQt5.QtGui import QIcon, QPixmap
 
-from async_udp_server import UDPMessage
+from protocol import UDPMessage
 from .utils import LineWidget
 
 if TYPE_CHECKING:
@@ -114,7 +114,7 @@ class ChatCanvas(QFrame):
             """Acknowledge (=double-tick) a message."""
             self.ack_label.setPixmap(self.CHECK_DOUBLE)
 
-        def setAlignmentAccordingToUsername(self, username: str) -> None:
+        def setAlignmentAccordingToUsername(self, username: Optional[str]) -> None:
             """ALign the message to left or right, depending on its username."""
             al = Qt.AlignRight if username == self.username else Qt.AlignLeft
             self.parentWidget().layout().setAlignment(self, al)
@@ -151,7 +151,7 @@ class ChatCanvas(QFrame):
         input_layout.addWidget(self.text_input)
         input_layout.addWidget(self.text_submit)
 
-        self.setLayout(QVBoxLayout())
+        msg_layout = QVBoxLayout(self)
         self.scroll_widget = QScrollArea()
         self.scroll_widget.setFrameStyle(QFrame.NoFrame)
         self.viewport_widget = QWidget()
@@ -165,9 +165,9 @@ class ChatCanvas(QFrame):
         self.view_layout.addStretch()
         self.scroll_widget.setWidgetResizable(True)
         self.scroll_widget.setWidget(self.viewport_widget)
-        self.layout().addWidget(self.group_header)
-        self.layout().addWidget(self.scroll_widget, stretch=2)
-        self.layout().addWidget(self.input_cont)
+        msg_layout.addWidget(self.group_header)
+        msg_layout.addWidget(self.scroll_widget, stretch=2)
+        msg_layout.addWidget(self.input_cont)
         self.scroll_widget.verticalScrollBar().rangeChanged.connect(self.onScrollChange)
 
     @pyqtSlot(int, int)
@@ -185,13 +185,17 @@ class ChatCanvas(QFrame):
         """Add a message to the canvas."""
         if seq_id in self.unacknowledged_messages:
             unack_msg = self.unacknowledged_messages[seq_id]
-            unack_msg.acknowledge()
-            return unack_msg
+            # It is technically possible (but unlikely) for SEQNs to clash,
+            # so perform a quick cjeck to test whether message text is a match
+            # before acknowledging.
+            if unack_msg.text == text:
+                unack_msg.acknowledge()
+                return unack_msg
         widget = self.MessageWidget(seq_id, text, username, date_sent)
         insert_index = self.view_layout.count()
         self.view_layout.insertWidget(insert_index, widget)
         prev_msg = self.view_layout.itemAt(insert_index-1).widget()
-        if prev_msg:
+        if isinstance(prev_msg, self.MessageWidget):
             widget.setPreviousMessage(prev_msg, self.view_layout, insert_index)
         if ack:
             widget.acknowledge()
@@ -210,6 +214,9 @@ class ChatCanvas(QFrame):
         now = datetime.now()
         uname = self.mwindow.username
         seq_id = self.mwindow.client.bytes_sent
+        if uname is None:
+            logging.warning("Cannot send message without being logged in")
+            return
         # Add a message to the canvas - it will be verified once the server replies
         msg = self.addMessage(seq_id, txt, uname, now)
         self.unacknowledged_messages[seq_id] = msg
@@ -240,5 +247,5 @@ class ChatCanvas(QFrame):
             for hmsg in msg.data.get("response", []):
                 timesent = datetime.fromisoformat(hmsg["Date_Sent"])
                 self.addMessage(
-                    None, hmsg["Text"], hmsg["Username"], timesent, ack=True)
+                    -1, hmsg["Text"], hmsg["Username"], timesent, ack=True)
 

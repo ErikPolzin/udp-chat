@@ -137,7 +137,7 @@ class LoginDialog(QDialog):
 
     def verify_credentials(self, username: str, password: str):
         """Send account verification to the server."""
-        self.showFeedback("Loggin in...", loading=True)
+        self.showFeedback("Logging in...", loading=True)
         self.mwindow.client.send_message({
             "type": UDPMessage.MessageType.USR_LOGIN.value,
             "username": username,

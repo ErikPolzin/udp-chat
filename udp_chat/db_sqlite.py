@@ -8,17 +8,23 @@ import hashlib
 import hmac
 import base64
 
+from PyQt5.QtCore import QStandardPaths
+
 from .exceptions import ItemNotFoundException
 from .protocol import Address
 
 
 class DatabaseController(object):
+    """the database controller facilitates working with the SQLite database."""
 
-    def __init__(self, db_name: str = "udp_chat.sqlite"):
+    DEFAULT_PATH = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+
+    def __init__(self, db_path: str = DEFAULT_PATH):
         """Create a new database controller with given parameters."""
 
-        # Controller constants
-        self.db_name = db_name
+        # If DEFAULT_PATH is '' just write to the current directory
+        self.db_name = os.path.join(db_path, "udpchat.sqlite")
+        logging.info(f"Initialized database controller at: {self.db_name}")
 
         # Create the database if it doesn't exist
         user_query = """CREATE TABLE IF NOT EXISTS User (

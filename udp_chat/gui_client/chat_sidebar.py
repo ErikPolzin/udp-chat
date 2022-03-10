@@ -1,12 +1,12 @@
 import asyncio
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 import logging
 
 from PyQt5.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QLabel, QLineEdit, QCheckBox
 from PyQt5.QtWidgets import QPushButton, QSizePolicy, QFrame, QHBoxLayout, QGroupBox
 from PyQt5.QtGui import QIcon
 
-from protocol import UDPMessage
+from udp_chat.protocol import UDPMessage
 from .chat_canvas import ChatCanvas
 
 if TYPE_CHECKING:
@@ -133,10 +133,10 @@ class ChatSidebar(QDockWidget):
                 self.group_warning_label.show()
                 self.group_warning_label.setText(msg.data.get("error"))
 
-    def onCreateGroup(self, group_name: str) -> None:
+    def onCreateGroup(self, group_name: str, members: Optional[List[str]] = None) -> None:
         """Run when a group is created."""
         # Add a chat window to the main window
-        new_chat_window = ChatCanvas(group_name, self.mwindow)
+        new_chat_window = ChatCanvas(group_name, self.mwindow, members)
         self.mwindow.content_widget.addWidget(new_chat_window)
         tab = self.addChatWindow(new_chat_window)
         self.setActiveTab(tab, new_chat_window)

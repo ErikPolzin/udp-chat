@@ -6,7 +6,7 @@ import logging
 import json
 import random
 
-from exceptions import RequestTimedOutException
+from .exceptions import RequestTimedOutException
 
 
 # Constants
@@ -105,12 +105,11 @@ class TimeoutRetransmissionProtocol(asyncio.Protocol):
                      data: Optional[Dict] = None,
                      msg: Optional[UDPMessage] = None,
                      addr: Optional[Address] = None,
-                     verify: bool = True,
                      verify_delay: float = 0.5,
-                     on_response: Optional[Callable] = None) -> Optional[asyncio.Future]:
+                     on_response: Optional[Callable] = None) -> asyncio.Future:
         """Send a message to the server/client. Starts a timer to verify receipt."""
         if self.transport is None:
-            return None
+            raise ValueError("Cannot send message without transport.")
         if msg is None:
             if data is None:
                 raise ValueError("Must specify message or data to send")
@@ -118,8 +117,6 @@ class TimeoutRetransmissionProtocol(asyncio.Protocol):
         msg_bytes = msg.to_bytes()
         # Push the message onto the write buffer
         self.transport.sendto(msg_bytes, addr)
-        if not verify:
-            return None
         # Verify the message:
         # 1. Create a future response to set when the verification succeeds
         future_response = asyncio.get_event_loop().create_future()

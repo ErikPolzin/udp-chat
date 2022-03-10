@@ -4,12 +4,12 @@
 
 To start the server, run
 ```bash
-python3 async_udp_server.py
+python3 -m udp_chat.server
 ```
 
 Provide optional command-line arguments `HOST, PORT`, i.e.:
 ```bash
-python3 async_udp_server.py 192.168.10.109 4999
+python3 -m udp_chat.server 192.168.10.109 4999
 ```
 
 
@@ -17,7 +17,7 @@ python3 async_udp_server.py 192.168.10.109 4999
 
 To create a client connection in the terminal window, run
 ```bash
-python3 async_udp_client.py
+python3 -m udp_chat.client
 ```
 
 Type a message into the console, and see it broadcast to other clients in the default chat group.
@@ -27,5 +27,5 @@ Type a message into the console, and see it broadcast to other clients in the de
 
 Ensure PyQT5 is installed. Then run (from the root directory):
 ```bash
-python3 -m gui_client
+python3 -m udp_chat.gui_client
 ```

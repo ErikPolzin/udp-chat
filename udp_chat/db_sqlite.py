@@ -1,6 +1,5 @@
 from typing import Dict, Iterable, List, Optional, Tuple, Generator, Union
 from datetime import datetime
-from exceptions import ItemNotFoundException
 import sqlite3
 import logging
 import urllib.parse
@@ -9,7 +8,9 @@ import hashlib
 import hmac
 import base64
 
-from protocol import Address
+from .exceptions import ItemNotFoundException
+from .protocol import Address
+
 
 class DatabaseController(object):
 
@@ -199,14 +200,24 @@ class DatabaseController(object):
         with self.connection() as con:
             user_id = self.get_user_id_by_name(con, user_name)
             query = """
-            SELECT Room.Name, datetime(Room.Date_Created)
-            FROM Room INNER JOIN Member
-            ON Room.RoomID = Member.RoomID
-            WHERE Member.UserID = ?;"""
+                SELECT Room.RoomID, Room.Name, datetime(Room.Date_Created)
+                FROM Room INNER JOIN Member
+                ON Room.RoomID = Member.RoomID
+                WHERE Member.UserID = ?;
+            """
+            members_query = """
+                SELECT User.Username
+                FROM Member INNER JOIN User
+                ON Member.UserID = User.USerID
+                WHERE Member.RoomID = ?;
+            """
             for r in self.read_query(con, query, (user_id,)):
+                rid, rname, date_created = r
+                members = [r[0] for r in self.read_query(con, members_query, (rid,))]
                 yield {
-                    "Name": r[0],
-                    "Date_Created": r[1],
+                    "Name": rname,
+                    "Date_Created": date_created,
+                    "Members": members,
                 }
 
     def group_names(self) -> List[str]:

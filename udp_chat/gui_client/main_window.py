@@ -8,13 +8,12 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import QMainWindow, QStackedWidget
 
-from async_udp_client import ClientChatProtocol
-from protocol import Address, UDPHeader, UDPMessage
-
+from udp_chat.client import ClientChatProtocol
+from udp_chat.protocol import Address, UDPHeader, UDPMessage
+from udp_chat.exceptions import RequestTimedOutException
 from .chat_sidebar import ChatSidebar
 from .chat_canvas import ChatCanvas
 from .login_dialog import LoginDialog
-from exceptions import RequestTimedOutException
 
 
 class MainWindow(QMainWindow):
@@ -91,10 +90,10 @@ class MainWindow(QMainWindow):
                 if msgw:
                     msgw.setReadByAll()
         # The user was added to a new group
-        elif msg.type == UDPMessage.MessageType.GRP_ADD:
+        elif msg.type == UDPMessage.MessageType.GRP_SUB:
             if msg.data and "group" in msg.data:
                 self.groups.add(msg.data["group"])
-                self.sidebar_widget.onCreateGroup(msg.data["group"])
+                self.sidebar_widget.onCreateGroup(msg.data["group"], msg.data.get("Members"))
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
@@ -178,7 +177,7 @@ class MainWindow(QMainWindow):
                 # Make sure the group hasn't already been fetched
                 if gname not in self.groups:
                     self.groups.add(gname)
-                    window = ChatCanvas(gname, self)
+                    window = ChatCanvas(gname, self, members=g.get("Members"))
                     self.content_widget.addWidget(window)
                     self.sidebar_widget.addChatWindow(window)
             for w in self.chatWindows():

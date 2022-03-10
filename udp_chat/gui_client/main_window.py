@@ -4,8 +4,8 @@ from datetime import datetime
 from queue import Queue
 import logging
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QCloseEvent, QIcon
+from PyQt5.QtCore import Qt, pyqtSignal, QSettings
+from PyQt5.QtGui import QCloseEvent, QIcon, QPixmap
 from PyQt5.QtWidgets import QMainWindow, QStackedWidget
 
 from udp_chat.client import ClientChatProtocol
@@ -39,6 +39,9 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(":/icon.png"))
         self.server_addr = server_addr
         logging.info(f"Created GUI client at {server_addr[0]}:{server_addr[1]}")
+        self.settings = QSettings("uct.ac.za", "udpchat")
+        self.bg_pixmap = QPixmap(self.settings.value("wallpaper", ":/background.jpeg", type=str))
+        self.bg_pixmap_alt = QPixmap(self.settings.value("wallpaper_alt", ":/background-blurred.png", type=str))
         self.message_backlog: Queue[UDPMessage] = Queue()
         self.first_connect = True
         self.username = None

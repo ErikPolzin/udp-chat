@@ -1,7 +1,7 @@
 """Utility widgets used by other parts of the GUI."""
-from PyQt5.QtCore import QSize
-from PyQt5.QtWidgets import QLabel, QFrame, QSizePolicy
-from PyQt5.QtGui import QMovie
+from PyQt5.QtCore import QSize, QRectF
+from PyQt5.QtWidgets import QLabel, QFrame, QSizePolicy, QGraphicsPixmapItem, QGraphicsEffect, QGraphicsScene
+from PyQt5.QtGui import QMovie, QPixmap, QPainter
 
 
 class CircularSpinner(QLabel):
@@ -29,3 +29,15 @@ class LineWidget(QFrame):
         self.setFrameShape(QFrame.HLine)
         self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
         self.setStyleSheet("border-color: black;")
+
+
+def applyEffectToPixmap(pmap: QPixmap, effect: QGraphicsEffect) -> QPixmap:
+    """From https://stackoverflow.com/questions/3903223/qt4-how-to-blur-qpixmap-image."""
+    scene = QGraphicsScene()
+    item = QGraphicsPixmapItem()
+    item.setPixmap(pmap)
+    item.setGraphicsEffect(effect)
+    scene.addItem(item)
+    ptr = QPainter(pmap)
+    scene.render(ptr, QRectF(), QRectF(0,0, pmap.width(), pmap.height()) )
+    return pmap

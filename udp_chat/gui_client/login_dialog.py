@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QWidget, QHBoxLayout, QGridLayout
 
-from protocol import UDPMessage
-from gui_client.utils import CircularSpinner
+from udp_chat.protocol import UDPMessage
+from .utils import CircularSpinner
 
 if TYPE_CHECKING:
     from .main_window import MainWindow

@@ -6,8 +6,8 @@ from typing import Callable, Optional, Set
 import logging
 from getpass import getpass
 
-from protocol import TimeoutRetransmissionProtocol, UDPHeader, UDPMessage, Address
-from async_udp_server import get_host_and_port
+from .protocol import TimeoutRetransmissionProtocol, UDPHeader, UDPMessage, Address
+from .server import get_host_and_port
 
 
 class ClientChatProtocol(TimeoutRetransmissionProtocol):
@@ -158,8 +158,9 @@ async def wait_for_command_then_send(protocol: ClientChatProtocol):
             "username": username})
 
 
-def main(server_addr: Address):
+def main():
     """Run the client, sending typed messages from the terminal to the default chat room."""
+    server_addr = get_host_and_port()
     logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
     loop = asyncio.get_event_loop()
     protocol = loop.run_until_complete(ClientChatProtocol.create(server_addr, None))
@@ -178,5 +179,4 @@ def main(server_addr: Address):
 
 
 if __name__ == "__main__":
-    server_addr = get_host_and_port()
-    main(server_addr)
+    main()

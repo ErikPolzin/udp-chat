@@ -4,9 +4,9 @@ import sys
 
 from PyQt5.QtWidgets import QApplication
 
-from async_udp_server import get_host_and_port
+from udp_chat.server import get_host_and_port
 from .main_window import MainWindow
-import resources
+from . import resources
 
 try:
     from qasync import QEventLoop
@@ -15,7 +15,7 @@ except ImportError:
     sys.exit(0)
 
 
-if __name__ == "__main__":
+def main():
     logging.basicConfig(level=logging.DEBUG)
     server_addr = get_host_and_port()
     app = QApplication([])
@@ -30,3 +30,7 @@ if __name__ == "__main__":
         asyncio.create_task(window.create_client(server_addr))
         loop.run_forever()
         logging.info("Application exited.")
+
+
+if __name__ == "__main__":
+    main()

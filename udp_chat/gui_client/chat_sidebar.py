@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QLabel, QLineEdit
 from PyQt5.QtWidgets import QPushButton, QSizePolicy, QFrame, QHBoxLayout, QGroupBox
 from PyQt5.QtGui import QIcon
 
-from protocol import UDPMessage
+from udp_chat.protocol import UDPMessage
 from .chat_canvas import ChatCanvas
 
 if TYPE_CHECKING:

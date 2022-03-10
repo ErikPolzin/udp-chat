@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
 from PyQt5.QtCore import pyqtSignal, Qt, pyqtSlot
 from PyQt5.QtGui import QIcon, QPixmap
 
-from protocol import UDPMessage
+from udp_chat.protocol import UDPMessage
 from .utils import LineWidget
 
 if TYPE_CHECKING:

@@ -6,7 +6,7 @@ import logging
 import json
 import random
 
-from exceptions import RequestTimedOutException
+from .exceptions import RequestTimedOutException
 
 
 # Constants

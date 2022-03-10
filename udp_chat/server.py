@@ -6,9 +6,9 @@ import logging
 from datetime import datetime
 import random
 
-from protocol import TimeoutRetransmissionProtocol, UDPHeader, UDPMessage, Address
-from exceptions import ItemAlreadyExistsException, ItemNotFoundException
-from db_sqlite import DatabaseController
+from .protocol import TimeoutRetransmissionProtocol, UDPHeader, UDPMessage, Address
+from .exceptions import ItemAlreadyExistsException, ItemNotFoundException
+from .db_sqlite import DatabaseController
 
 
 class SqliteGroupLayer(object):
@@ -223,9 +223,9 @@ def get_host_and_port(random_port=False) -> Address:
         host, port = '127.0.0.1', 5000
     return (host, None) if random_port else (host, port)  # type: ignore
 
-def main():
-    logging.basicConfig(level=logging.DEBUG)
+def main() -> None:
     host, port = get_host_and_port()
+    logging.basicConfig(level=logging.DEBUG)
     logging.info(f"Starting UDP server at {host}:{port}...")
 
     loop = asyncio.get_event_loop()

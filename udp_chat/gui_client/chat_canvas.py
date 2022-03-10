@@ -132,10 +132,21 @@ class ChatCanvas(QFrame):
             self.ack_label.setPixmap(self.CHECK_DOUBLE)
 
         def setAlignmentAccordingToUsername(self, username: Optional[str]) -> None:
-            """ALign the message to left or right, depending on its username."""
-            al = Qt.AlignRight if username == self.username else Qt.AlignLeft
+            """Align the message to left or right, depending on its username and change bubble colour."""
+            if username == self.username : 
+                al = Qt.AlignRight 
+                self.setStyleSheet("""
+                            #message {
+                                background-color: #b9ebb2;
+                                border-radius: 8px;
+                                border-top-left-radius: 2px;
+                                }
+                            """)
+            else:
+                al = Qt.AlignLeft
+                
             self.parentWidget().layout().setAlignment(self, al)
-
+            
     
     def __init__(self, group_name: str, mwindow: MainWindow, members: Optional[List[str]] = None):
         """Initialize for a given group."""

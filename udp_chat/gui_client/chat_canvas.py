@@ -30,8 +30,9 @@ class ChatCanvas(QFrame):
     """
     HEADER_SS = """
         #header {
-            background-color: rgba(46, 44, 159, 0.9);
+            background-color: rgba(46, 44, 159, 0.8);
             padding: 10px 15px;
+            border-radius: 4px;
         }
     """
     TITLE_SS = """
@@ -136,12 +137,11 @@ class ChatCanvas(QFrame):
             if username == self.username : 
                 al = Qt.AlignRight 
                 self.setStyleSheet("""
-                            #message {
-                                background-color: #b9ebb2;
-                                border-radius: 8px;
-                                border-top-left-radius: 2px;
-                                }
-                            """)
+                    #message {
+                        background-color: #b9ebb2;
+                        border-radius: 8px;
+                        border-bottom-right-radius: 2px;
+                        }""")
             else:
                 al = Qt.AlignLeft
                 

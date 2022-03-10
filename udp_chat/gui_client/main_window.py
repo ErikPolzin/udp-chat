@@ -5,7 +5,7 @@ from queue import Queue
 import logging
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QCloseEvent
+from PyQt5.QtGui import QCloseEvent, QIcon
 from PyQt5.QtWidgets import QMainWindow, QStackedWidget
 
 from udp_chat.client import ClientChatProtocol
@@ -36,6 +36,7 @@ class MainWindow(QMainWindow):
     def __init__(self, server_addr: Address):
         """Initialize the UI."""
         super().__init__()
+        self.setWindowIcon(QIcon(":/icon.png"))
         self.server_addr = server_addr
         logging.info(f"Created GUI client at {server_addr[0]}:{server_addr[1]}")
         self.message_backlog: Queue[UDPMessage] = Queue()

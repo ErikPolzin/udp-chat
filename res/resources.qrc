@@ -9,5 +9,6 @@
     <file>add-group.png</file>
     <file>clock.png</file>
     <file>loading-circular.gif</file>
+    <file>icon.png</file>
 </qresource>
 </RCC>

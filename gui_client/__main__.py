@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 
 from PyQt5.QtWidgets import QApplication
 
@@ -11,6 +12,7 @@ try:
     from qasync import QEventLoop
 except ImportError:
     logging.info("The GUI needs qasync to run, please install it!")
+    sys.exit(0)
 
 
 if __name__ == "__main__":

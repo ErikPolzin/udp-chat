@@ -1,105 +1,27 @@
 """Asynchronous UDP server implementation for a group chat API using websockets."""
 import asyncio
-import json
-import struct
 import sys
-from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, NamedTuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 import logging
 from datetime import datetime
 import random
 
+from protocol import TimeoutRetransmissionProtocol, UDPHeader, UDPMessage, Address
 from exceptions import ItemAlreadyExistsException, ItemNotFoundException
 from db_sqlite import DatabaseController
-
-# Constants
-HEADER_FORMAT: str = "!i???"
-HEADER_STRUCT: struct.Struct = struct.Struct(HEADER_FORMAT)
-HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
-
-Address = Tuple[str, int]
-
-
-class UDPHeader(NamedTuple):
-    """Additional UDP packet data, stored in binary."""
-
-    SEQN: int = 0
-    ACK: bool = False
-    SYN: bool = False
-    FIN: bool = False
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> 'UDPHeader':
-        """Create a UDP Header from bytes."""
-        return UDPHeader._make(HEADER_STRUCT.unpack(data[:HEADER_SIZE]))
-
-    def to_bytes(self) -> bytes:
-        """Serialize a UDP header."""
-        return HEADER_STRUCT.pack(*self)
-
-
-class UDPMessage(object):
-    """Represents a message sent to the server, originally as a UDP packet."""
-
-    class MessageType(Enum):
-        """Enumerate all the allowed message types."""
-
-        CHT = "CHT"  # Chat message
-        GRP_SUB = "GRP_SUB"  # Request to subscribe to an existing group
-        GRP_ADD = "GRP_ADD"  # Request to create a new group
-        GRP_HST = "GRP_HST"  # Request group history
-        MSG_HST = "MSG_HST"  # Request message history for group
-        USR_LOGIN = "USR_LOGIN" # Request to veryify user credentials
-        USR_ADD = "USR_ADD"  # Request to create a new user
-        USR_LST = "USR_LST"  # Request a list of all usernames
-
-    def __init__(self, header: UDPHeader, data: Optional[dict] = None):
-        """Initialize a chat message from header and data."""
-        self.header = header
-        self.data = data
-        self.type: Optional[UDPMessage.MessageType] = None
-        if self.data and "type" in data:
-            try:
-                self.type = self.MessageType(self.data["type"])
-            except ValueError:
-                self.type = None
-
-    def __str__(self) -> str:
-        """Stringify a chat message."""
-        if self.header.ACK:
-            return f"<UDPMessage {self.header.SEQN}: ACK>"
-        if self.header.SYN:
-            return f"<UDPMessage {self.header.SEQN}: SYN>"
-        if self.header.FIN:
-            return f"<UDPMessage {self.header.SEQN}: FIN>"
-        if self.data and self.type:
-            return f"<UDPMessage {self.header.SEQN}: {self.type} grp={self.data.get('group')}>"
-        return f"<UDPMessage {self.header.SEQN}: {self.type}, data={self.data}>"
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> 'UDPMessage':
-        """Initialize from a UDP packet."""
-        header = UDPHeader.from_bytes(data)
-        mdata = json.loads(data[HEADER_SIZE:]) if data[HEADER_SIZE:] else None
-        return UDPMessage(header, mdata)
-
-    def to_bytes(self) -> bytes:
-        """Serialize a chat message."""
-        return self.header.to_bytes() + json.dumps(self.data).encode()
 
 
 class SqliteGroupLayer(object):
     """Registers, removed and sends messages to groups."""
 
-    def __init__(self, transport: asyncio.DatagramTransport, db_controller: DatabaseController):
+    def __init__(self, protocol: TimeoutRetransmissionProtocol, db_controller: DatabaseController):
         """Initialize a memory group layer."""
-        self.transport = transport
+        self.protocol = protocol
         self.db_controller = db_controller
 
-    def group_add(self, group: str, user_name: str, members: List[str]) -> None:
+    def group_add(self, group: str, members: List[str]) -> None:
         """Register a channel in a new group."""
-        self.db_controller.new_group(group, user_name)
-        logging.info(f"{user_name} created new group: '{group}'")
+        self.db_controller.new_group(group)
         # Extremely inefficient but let's keep it simple
         for mname in members:
             self.group_sub(group, mname)
@@ -107,16 +29,34 @@ class SqliteGroupLayer(object):
     def group_sub(self, group: str, username: str) -> None:
         """Register a channel in an existing group."""
         self.db_controller.new_member(username, group)
+        addr = self.db_controller.addr_for_user(username)
+        if addr:
+            self.protocol.send_message({
+                "type": "GRP_ADD",
+                "group": group
+            }, addr=addr, verify_delay=2)
         logging.info(f"Subscribe {username} to group '{group}'")
 
     def group_send(self, group: str, msg: UDPMessage) -> None:
         """Send a message to all addresses in a group."""
         logging.info(f"Send {msg} to group '{group}'")
         for addr in self.db_controller.get_addresses_for_group(group):
-            self.transport.sendto(msg.to_bytes(), addr)
+            # Send a message with a really long verification timeout.
+            # Don't want to double send messages unnecessarily.
+            self.protocol.send_message(msg=msg, addr=addr, verify_delay=2)
+            # Modify the header so it doesn't have the same SEQN!
+            # Otherwise multiple messages will be sent with the same SEQN
+            msg.header = UDPHeader(SEQN=self.protocol.bytes_sent)
 
+    def group_rba(self, group: str, message_id: int) -> None:
+        """Notify a group that a message has been real by all members."""
+        logging.debug(f"Send RBA to group '{group}'")
+        for addr in self.db_controller.get_addresses_for_group(group):
+            data = {"type": "MSG_RBA", "group": group, "MessageID": message_id}
+            msg = UDPMessage(UDPHeader(self.protocol.bytes_sent), data)
+            self.protocol.send_message(msg=msg, addr=addr, verify_delay=2)
 
-class ServerChatProtocol(asyncio.Protocol):
+class ServerChatProtocol(TimeoutRetransmissionProtocol):
     """Server-side chat protocol.
     
     The server is responsible for sending ACK messages back to senders,
@@ -130,45 +70,55 @@ class ServerChatProtocol(asyncio.Protocol):
 
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         """Created a connection to the local socket."""
-        self.transport = transport
+        super().connection_made(transport)
         self.db_controller = DatabaseController()
-        self.group_layer = SqliteGroupLayer(transport, self.db_controller)
+        self.group_layer = SqliteGroupLayer(self, self.db_controller)
 
-    def client_connection_made(self, addr: Address) -> None:
+    def client_connection_made(self, addr: Address, uname: Optional[str]) -> None:
         """Created a connection to a remote socket."""
-        pass
+        # Client connected without a username, this is acceptable
+        if not uname:
+            return
+        try:
+            with self.db_controller.connection() as c:
+                self.db_controller.update_user_address(c, uname, addr)
+        except Exception:
+            pass
 
     def client_connection_terminated(self, addr: Address) -> None:
         """Signalled to close the connection to the server."""
-        pass
+        self.db_controller.deregister_address(addr)
 
-    def datagram_received(self, data: bytes, addr: Address) -> None:
+    def datagram_received(self, data: bytes, addr: Address) -> bool:
         """Received a datagram from the chat's socket."""
-        if self.transport is None:
-            return
+        if super().datagram_received(data, addr) is False:
+            return False
         # Mimic 20% of UDP packets not arriving
-        if random.random() < 0.2:
-            return
+        if random.random() < 0.2 or self.transport is None:
+            return False
         msg = UDPMessage.from_bytes(data)
         if msg.header.SYN:
-            self.client_connection_made(addr)
+            username = msg.data.get("username") if msg.data else None
+            self.client_connection_made(addr, username)
         if msg.header.FIN:
             self.client_connection_terminated(addr)
-        logging.debug('Received %s from %s' % (msg, addr))
         ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True, SYN=False), {})
+        assert ack_msg.data is not None  # Keep mypy happy
         # Determine the message type and process accordingly
         if msg.data and msg.type:
-            status, data, error = self.message_received(msg, addr)
+            status, rdata, error = self.message_received(msg, addr)
             ack_msg.data["status"] = status
             ack_msg.data["error"] = error
-            ack_msg.data["response"] = data
+            ack_msg.data["response"] = rdata
         # Echo an acknowledgement to the sender, with the same sequence number.
         self.transport.sendto(ack_msg.to_bytes(), addr)
+        return True
 
     def message_received(
             self, msg: UDPMessage, addr: Address
         ) -> Tuple[int, Optional[Union[List, Dict]], Optional[str]]:
         """Received a message with an associated type. Usually called after datagram_received()."""
+        assert msg.data is not None and msg.type is not None
         mtype = msg.type
         group_name = msg.data.get("group", "General Chat Room")
         user_name = msg.data.get("username", "root")
@@ -176,21 +126,32 @@ class ServerChatProtocol(asyncio.Protocol):
         # Message is a chat message, send it to the associated group
         if mtype == UDPMessage.MessageType.CHT:
             text = msg.data.get("text")
+            if not isinstance(text, str):
+                return 400, None, "No text specified"
+            # Try parse the tmessage's send time, or pick current server time
             time_sent = datetime.now()
             if "time_sent" in msg.data:
                 time_sent = datetime.fromisoformat(msg.data["time_sent"])
+            # Persist the message to the database
             try:
-                self.db_controller.new_message(group_name, user_name, text, time_sent)
+                mid = self.db_controller.new_message(group_name, user_name, text, time_sent)
             except Exception as e:
                 return 500, None, f"Unable to save message: {e}"
+            # Save a reference to the message ID
+            msg.data["MessageID"] = mid
+            # Save a reference to the sequence number of the message
+            msg.data["msg_seqn"] = msg.header.SEQN
             self.group_layer.group_send(group_name, msg)
             return 200, None, None
         # Message is a group add, try create a new group
         elif mtype == UDPMessage.MessageType.GRP_ADD:
             try:
                 members = msg.data.get("members", [])
-                self.group_layer.group_add(group_name, user_name, members)
-                logging.info(f"Created new group '{group_name}'")
+                # Add the creator to the members if they arent listed already
+                if user_name not in members:
+                    members.append(user_name)
+                self.group_layer.group_add(group_name, members)
+                logging.info(f"{user_name} created new group: '{group_name}'")
                 return 200, {"group": group_name}, None
             except ItemAlreadyExistsException:
                 return 400, None, "Group with this name already exists"
@@ -207,7 +168,16 @@ class ServerChatProtocol(asyncio.Protocol):
             except ItemNotFoundException:
                 return 400, None, "Group with this name already exists"
         elif mtype == UDPMessage.MessageType.MSG_HST:
-            message_history = list(self.db_controller.message_history(group_name))
+            # Bear in mind that a user fetching message history (for the purposes
+            # of this application) is the same as them reading a message.
+            # After each message has been fetched from the database, the server
+            # checked to see whether it has been read by all, then sends an RBA broadcast
+            message_history = []
+            for message, rba_changed in self.db_controller.message_history(group_name, user_name):
+                message_history.append(message)
+                if rba_changed:
+                    mid = int(message["MessageID"])
+                    self.group_layer.group_rba(group_name, mid)
             return 200, message_history, None
         elif mtype == UDPMessage.MessageType.USR_LST:
             user_list = list(self.db_controller.user_list())
@@ -228,6 +198,17 @@ class ServerChatProtocol(asyncio.Protocol):
         else:
             return 400, None, f"Unrecognised message type '{mtype}'"
 
+    def on_timed_out(self, addr: Optional[Address]) -> None:
+        """De-register an address if a request to a 'client' times out."""
+        if addr is not None:
+            self.db_controller.deregister_address(addr)
+
+    def on_receive_ack(self, group: str, uname: str, mid: int) -> None:
+        """Received a message acknowledgement from a client."""
+        if self.db_controller.mark_message_as_read(uname, mid):
+            # Send an RBA if this was the last user to read this message
+            self.group_layer.group_rba(group, mid)
+
 
 def get_host_and_port(random_port=False) -> Address:
     """Get the host and port from system args."""
@@ -237,7 +218,7 @@ def get_host_and_port(random_port=False) -> Address:
         host, port = sys.argv[1], 5000
     else:
         host, port = '127.0.0.1', 5000
-    return (host, port) if not random_port else (host, None)
+    return (host, None) if random_port else (host, port)  # type: ignore
 
 async def main():
     logging.basicConfig(level=logging.DEBUG)

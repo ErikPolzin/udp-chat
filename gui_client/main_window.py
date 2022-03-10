@@ -5,10 +5,11 @@ from queue import Queue
 import logging
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QMainWindow, QStackedWidget, QGridLayout, QLabel, QLineEdit, QPushButton, QDialog, QVBoxLayout
+from PyQt5.QtGui import QCloseEvent
+from PyQt5.QtWidgets import QMainWindow, QStackedWidget
 
 from async_udp_client import ClientChatProtocol
-from async_udp_server import Address, UDPMessage
+from protocol import Address, UDPHeader, UDPMessage
 
 from .chat_sidebar import ChatSidebar
 from .chat_canvas import ChatCanvas
@@ -41,6 +42,7 @@ class MainWindow(QMainWindow):
         self.message_backlog: Queue[UDPMessage] = Queue()
         self.first_connect = True
         self.username = None
+        self.groups = set()
 
         self.content_widget = QStackedWidget()
         self.content_widget.setContentsMargins(0, 0, 0, 0)
@@ -56,23 +58,47 @@ class MainWindow(QMainWindow):
         self.login_dialog.setModal(True)
         self.login_dialog.show()
 
-    def onReceiveMessage(self, msg: UDPMessage):
+    def onReceiveMessage(self, msg: UDPMessage) -> None:
         """Client received a new message."""
+        # GUI received a new chat message
         if msg.type == UDPMessage.MessageType.CHT:
+            if msg.data is None:
+                logging.warning("Received message with no data!")
+                return
             try:
-                text = msg.data["text"]
-                username = msg.data["username"]
+                text = str(msg.data["text"])
+                username = str(msg.data["username"])
                 time_sent = datetime.fromisoformat(msg.data["time_sent"])
+                seqn = int(msg.data["msg_seqn"])
+                group = str(msg.data["group"])
+                mid = int(msg.data["MessageID"])
             except KeyError as k:
                 logging.warning(f"Received improperly formatted message (missing '{k}'")
                 return
-            w = self.getChatWindow(msg.data.get("group"))
+            w = self.getChatWindow(group)
             if w:
-                w.addMessage(msg.header.SEQN, text, username, time_sent, ack=True)
+                w.addMessage(seqn, text, username, time_sent, ack=True, mid=mid)
+        # A message was delivered to all recipients
+        elif msg.type == UDPMessage.MessageType.MSG_RBA:
+            if msg.data is None:
+                logging.warning("Received message with no data!")
+                return
+            group = str(msg.data["group"])
+            mid = int(msg.data["MessageID"])
+            w = self.getChatWindow(group)
+            if w:
+                msgw = w.getMessageByID(mid)
+                if msgw:
+                    msgw.setReadByAll()
+        # The user was added to a new group
+        elif msg.type == UDPMessage.MessageType.GRP_ADD:
+            if msg.data and "group" in msg.data:
+                self.groups.add(msg.data["group"])
+                self.sidebar_widget.onCreateGroup(msg.data["group"])
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
-        self.client: ClientChatProtocol = await ClientChatProtocol.create(server_addr)
+        self.client: ClientChatProtocol = await ClientChatProtocol.create(server_addr, self.username)
         self.client.on_con_lost.add_done_callback(self.onLostConnection)
         self.client.add_server_connected_listener(self.onCreatedConnection)
         logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
@@ -126,19 +152,20 @@ class MainWindow(QMainWindow):
     def onSendMessage(self, response: asyncio.Future):
         """Add a message to the backlog if sending it fails."""
         if isinstance(response.exception(), RequestTimedOutException):
-            msg: UDPMessage = response.request
-            # Add the message to the backlog - it will be sent again once reconnected
-            if msg.type == UDPMessage.MessageType.CHT:
-                logging.debug("Added message to backlog")
-                self.message_backlog.put(msg)
+            if hasattr(response, "request"):
+                msg: UDPMessage = response.request
+                # Add the message to the backlog - it will be sent again once reconnected
+                if msg.type == UDPMessage.MessageType.CHT:
+                    logging.debug("Added message to backlog")
+                    self.message_backlog.put(msg)
 
     def fetchGroups(self) -> None:
         self.client.send_message({
             "type": UDPMessage.MessageType.GRP_HST.value,
             "username": self.username,
-        }, on_response=self.onFetchedGroups)
+        }, on_response=self.onFetchGroups)
 
-    def onFetchedGroups(self, resp3: asyncio.Future):
+    def onFetchGroups(self, resp3: asyncio.Future):
         """Request historical messages from the server's database."""
         if resp3.exception():
             wlab = self.sidebar_widget.group_warning_label
@@ -146,16 +173,27 @@ class MainWindow(QMainWindow):
             wlab.setText("Error retrieving groups.")
         else:
             msg: UDPMessage = resp3.result()
-            for g in msg.data.get("response", []):
-                window = ChatCanvas(g["Name"], self)
-                self.content_widget.addWidget(window)
-                self.sidebar_widget.addChatWindow(window)
+            for g in msg.data.get("response", {}):
+                gname = g["Name"]
+                # Make sure the group hasn't already been fetched
+                if gname not in self.groups:
+                    self.groups.add(gname)
+                    window = ChatCanvas(gname, self)
+                    self.content_widget.addWidget(window)
+                    self.sidebar_widget.addChatWindow(window)
             for w in self.chatWindows():
                 w.retrieveHistoricalMessages()
 
     def onLogin(self, username: str) -> None:
         """Callback once the user has logged in."""
         self.username = username
+        self.client.username = username
         self.showMaximized()
         self.fetchGroups()
-        self.sidebar_widget.setUsername(self.username) 
+        self.sidebar_widget.setUsername(self.username)
+
+    def closeEvent(self, a0: QCloseEvent) -> None:
+        """Send a FIN message before closing the app."""
+        if self.client.transport:
+            self.client.transport.sendto(UDPHeader(-1, FIN=True).to_bytes())
+        return super().closeEvent(a0)

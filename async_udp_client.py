@@ -2,40 +2,36 @@
 import asyncio
 from datetime import datetime
 import sys
-from typing import Callable, Dict, Optional, Set
+from typing import Callable, Optional, Set
 import logging
 
-from async_udp_server import UDPHeader, UDPMessage, Address, get_host_and_port
-from exceptions import RequestTimedOutException
+from protocol import TimeoutRetransmissionProtocol, UDPHeader, UDPMessage, Address
+from async_udp_server import get_host_and_port
 
 
-class ClientChatProtocol(asyncio.Protocol):
+class ClientChatProtocol(TimeoutRetransmissionProtocol):
     """Client-side chat protocol.
     
     Responsible for sending chat messages to the server,
     and veryfing their arrival.
     """
 
-    MAX_TIMEOUT = 5  # Max timeout (s). After this, the socket is closed.
-
     @classmethod
-    async def create(cls, server_addr: Address):
+    async def create(cls, server_addr: Address, uname: Optional[str] = None) -> 'ClientChatProtocol':
         """Create a new ClientChatProtocol in the async event loop."""
         loop = asyncio.get_running_loop()
         on_con_lost = loop.create_future()
 
         transport, protocol = await loop.create_datagram_endpoint(
-            lambda: cls(on_con_lost),
+            lambda: cls(on_con_lost, uname),
             remote_addr=server_addr)
         return protocol
 
-    def __init__(self, on_con_lost: asyncio.Future):
+    def __init__(self, on_con_lost: asyncio.Future, uname: Optional[str] = None):
         """Initialize the protocol. At this stage, no transport has been created."""
+        super().__init__()
         self.on_con_lost = on_con_lost
-        self.transport: Optional[asyncio.DatagramTransport] = None
-        self.future_responses: Dict[int, asyncio.Future] = {}
-        self.bytes_sent: int = 0
-        self.on_receive_message_listener: Optional[Callable[[UDPMessage], None]] = None
+        self.username = uname
         self.server_connected_listeners: Set[Callable[[], None]] = set()
 
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
@@ -48,12 +44,13 @@ class ClientChatProtocol(asyncio.Protocol):
         self.transport = transport
         self.connect_to_server()
 
-    def connect_to_server(self):
+    def connect_to_server(self) -> None:
         """Send a connection message to the server."""
-        connect_msg = UDPMessage(UDPHeader(SEQN=0, ACK=False, SYN=True))
+        data = {"username": self.username}
+        connect_msg = UDPMessage(UDPHeader(SEQN=0, ACK=False, SYN=True), data)
         self.send_message(msg=connect_msg, on_response=self.connected_to_server)
 
-    def connected_to_server(self, response: asyncio.Future):
+    def connected_to_server(self, response: asyncio.Future) -> None:
         """Callback after the client has made a successful connection to the server."""
         if response.exception():
             logging.error("Error connecting to server")
@@ -63,95 +60,51 @@ class ClientChatProtocol(asyncio.Protocol):
                 callb()
             logging.info("Connected to server!")
 
-    def send_message(self,
-                     data: Dict = None,
-                     msg: UDPMessage = None,
-                     on_response: Callable = None) -> None:
-        """Send a message to the server. Starts a timer to verify receipt."""
-        if msg is None:
-            if data is None:
-                raise ValueError("Must specify message or data to send")
-            msg = UDPMessage(UDPHeader(SEQN=self.bytes_sent, ACK=False, SYN=False), data=data)
-        msg_bytes = msg.to_bytes()
-        # Push the message onto the write buffer
-        self.transport.sendto(msg_bytes)
-        # Verify the message:
-        # 1. Create a future response to set when the verification succeeds
-        future_response = asyncio.get_event_loop().create_future()
-        # A bit cheeky: set the request message as an attribute on the response,
-        # so the response handler can access the original request.
-        future_response.request = msg
-        verify_coroutine = self.verify_message(msg, future_response)
-        # Start the verification task
-        verify_task = asyncio.create_task(verify_coroutine)
-        # Cancel the verification task when the response is returned
-        future_response.add_done_callback(lambda f: verify_task.cancel())
-        # Add an optional user-specified response callback
-        if on_response:
-            future_response.add_done_callback(on_response)
-        self.future_responses[msg.header.SEQN] = future_response
-        self.bytes_sent += len(msg_bytes)
-        # Allows await send_message()
-        return future_response
-
-    async def verify_message(
-            self, msg: UDPMessage, future_response: asyncio.Future, delay: float = 0.5):
-        """Asynchronously verify messages in the event loop."""
-        total_delay = 0
-        while total_delay < self.MAX_TIMEOUT:
-            msg_bytes = msg.to_bytes()
-            actual_delay = min(delay, self.MAX_TIMEOUT-total_delay)
-            await asyncio.sleep(actual_delay)
-            total_delay += actual_delay
-            # Send a message, but don't start a new verification task
-            # (since this one is already running)
-            logging.debug(f"Re-send {msg} (verification timed out after {delay:.1f}s)")
-            self.transport.sendto(msg_bytes)
-            delay *= 2  # Wait for twice as long
-        logging.error(f"Timed out after {total_delay:.1f}s, cancel request.")
-        future_response.set_exception(RequestTimedOutException)
-        self.on_con_lost.set_result(True)
-
-    def datagram_received(self, data: bytes, addr: Address):
-        """Received a datagram from the server."""
-        msg = UDPMessage.from_bytes(data)
-        # Received an ack, try stop the timer
-        if msg.header.ACK:
-            future_response = self.future_responses.get(msg.header.SEQN)
-            # Stop running the timer task
-            if future_response is not None:
-                # Set the response - this will cancel the verification task
-                # and call the optional response callback
-                future_response.set_result(msg)
-                # Remove the from the list of future responses
-                del self.future_responses[msg.header.SEQN]
-            status = msg.data.get("status")
-            if status != 200 and status is not None:
-                logging.warning(f"Received error: {msg.data.get('error')} [{status}]")
-            return
-        if self.on_receive_message_listener is not None:
-            self.on_receive_message_listener(msg)
-        logging.debug("Received: %s" % msg)
-
-    def error_received(self, exc):
-        """Received an error from the server."""
-        logging.error('Error received: %s' % exc)
-
-    def connection_lost(self, exc):
-        """Connection to server lost."""
-        logging.warning("Connection lost")
-        self.on_con_lost.set_result(True)
-
-    def set_receive_listener(self, listener: Callable[[UDPMessage], None]):
-        """Set an external listener for incoming UDP messages."""
-        self.on_receive_message_listener = listener
+    def datagram_received(self, data: bytes, addr: Address) -> bool:
+        """Received a datagram from the server.
+        
+        If the client receives a chat message, it must acknowledge it with the server.
+        """
+        if super().datagram_received(data, addr):
+            if not self.transport:
+                return False
+            msg = UDPMessage.from_bytes(data)
+            if msg.type == UDPMessage.MessageType.CHT and msg.data:
+                # Send an ack to the server, echoing data back
+                ack_data = {
+                    "MessageID": msg.data.get("MessageID"),
+                    "group": msg.data.get("group"),
+                    "username": self.username,
+                }
+                ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True), ack_data)
+                self.transport.sendto(ack_msg.to_bytes(), addr)
+            # Client received confirmation that a message was read by all members
+            if msg.type in (UDPMessage.MessageType.MSG_RBA, UDPMessage.MessageType.GRP_ADD):
+                # Acknowledge the client has received this packet
+                ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True), {})
+                self.transport.sendto(ack_msg.to_bytes(), addr)
+            return True
+        return False
 
     def add_server_connected_listener(self, listener: Callable[[], None]) -> None:
         """Add a callable to the set of connected listeners."""
         self.server_connected_listeners.add(listener)
 
+    def on_timed_out(self, addr: Optional[Address]) -> None:
+        """Set the on_con_lost result."""
+        self.on_con_lost.set_result(True)
 
-async def ainput(string: str = None) -> str:
+    def error_received(self, exc):
+        """Received an error from the server or client."""
+        logging.error('Error received: %s' % exc)
+
+    def connection_lost(self, exc):
+        """Connection to server/client lost."""
+        logging.warning("Connection lost")
+        self.on_con_lost.set_result(True)
+
+
+async def ainput(string: Optional[str] = None) -> str:
     """Await user input from standard input."""
     if string:
         await asyncio.get_event_loop().run_in_executor(
@@ -162,7 +115,7 @@ async def ainput(string: str = None) -> str:
 async def main(server_addr: Address):
     """Run the client, sending typed messages from the terminal to the default chat room."""
     logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
-    protocol: ClientChatProtocol = await ClientChatProtocol.create(server_addr)
+    protocol: ClientChatProtocol = await ClientChatProtocol.create(server_addr, "root")
     try:
         while True:
             text = await ainput()
@@ -182,7 +135,8 @@ async def main(server_addr: Address):
                 "time_sent": datetime.now().isoformat(),
                 "username": "root"})
     finally:
-        protocol.transport.close()
+        if protocol.transport:
+            protocol.transport.close()
 
 
 if __name__ == "__main__":

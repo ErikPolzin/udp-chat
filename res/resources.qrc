@@ -1,6 +1,7 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
     <file>background.jpeg</file>
+    <file>background-blurred.png</file>
     <file>send.png</file>
     <file>check.png</file>
     <file>check-all.png</file>

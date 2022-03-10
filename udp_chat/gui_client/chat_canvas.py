@@ -30,7 +30,7 @@ class ChatCanvas(QFrame):
     """
     HEADER_SS = """
         #header {
-            background-color: #0b2e6e;
+            background-color: rgba(46, 44, 159, 0.9);
             padding: 10px 15px;
         }
     """
@@ -293,7 +293,9 @@ class ChatCanvas(QFrame):
     def paintEvent(self, e: QPaintEvent):
         """Draw background image, keeping aspect ratio."""
         super().paintEvent(e)
+        dx = self.mwindow.sidebar_widget.width()
         pixmap = self.bg_pixmap.scaled(
-            self.width(), self.height(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-        QPainter(self).drawPixmap(0, 0, pixmap)
+            self.mwindow.width(), self.mwindow.height(),
+            Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        QPainter(self).drawPixmap(-dx, 0, pixmap)
 

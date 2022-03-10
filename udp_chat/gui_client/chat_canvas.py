@@ -151,7 +151,7 @@ class ChatCanvas(QFrame):
     def __init__(self, group_name: str, mwindow: MainWindow, members: Optional[List[str]] = None):
         """Initialize for a given group."""
         super().__init__()
-        self.bg_pixmap = QPixmap(":/background.jpeg")
+        self.bg_pixmap = QPixmap(":/newbackground.jpg")
         self.group_name = group_name
         self.mwindow = mwindow
         self.members = members if members is not None else []

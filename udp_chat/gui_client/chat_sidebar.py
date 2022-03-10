@@ -34,7 +34,7 @@ class ChatSidebar(QDockWidget):
         super().__init__()
         self.username = username
         self.active_tab: Optional[QFrame] = None
-        self.bg_pixmap = QPixmap(":/background-blurred.png")
+        self.bg_pixmap = QPixmap(":/sidebar.jpg")
 
         self.content_widget = QWidget()
         self.content_widget.setLayout(QVBoxLayout())

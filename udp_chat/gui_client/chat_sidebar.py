@@ -5,7 +5,7 @@ import logging
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QLabel, QLineEdit, QCheckBox
 from PyQt5.QtWidgets import QPushButton, QSizePolicy, QFrame, QHBoxLayout, QGroupBox
-from PyQt5.QtGui import QIcon, QPixmap, QPainter, QPaintEvent
+from PyQt5.QtGui import QIcon, QPainter, QPaintEvent
 
 from udp_chat.protocol import UDPMessage
 from .chat_canvas import ChatCanvas
@@ -34,7 +34,6 @@ class ChatSidebar(QDockWidget):
         super().__init__()
         self.username = username
         self.active_tab: Optional[QFrame] = None
-        self.bg_pixmap = QPixmap(":/sidebar.jpg")
 
         self.content_widget = QWidget()
         self.content_widget.setLayout(QVBoxLayout())
@@ -217,7 +216,7 @@ class ChatSidebar(QDockWidget):
     def paintEvent(self, e: QPaintEvent):
         """Draw blurred background image, keeping aspect ratio."""
         super().paintEvent(e)
-        pixmap = self.bg_pixmap.scaled(
+        pixmap = self.mwindow.bg_pixmap_alt.scaled(
             self.mwindow.width(), self.mwindow.height(),
             Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
         QPainter(self).drawPixmap(0, 0, pixmap)

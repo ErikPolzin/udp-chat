@@ -1,15 +1,16 @@
 import asyncio
 from datetime import datetime
 import logging
+import os
 from typing import TYPE_CHECKING, Dict, Any, List, Optional
 
-from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton, QApplication
-from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
-from PyQt5.QtCore import pyqtSignal, Qt, pyqtSlot
+from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton, QMenu, QAction, QGraphicsBlurEffect
+from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame, QFileDialog
+from PyQt5.QtCore import pyqtSignal, Qt, pyqtSlot, QPoint, QStandardPaths
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QPaintEvent
 
 from udp_chat.protocol import UDPMessage
-from .utils import LineWidget
+from .utils import LineWidget, applyEffectToPixmap
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -151,13 +152,14 @@ class ChatCanvas(QFrame):
     def __init__(self, group_name: str, mwindow: MainWindow, members: Optional[List[str]] = None):
         """Initialize for a given group."""
         super().__init__()
-        self.bg_pixmap = QPixmap(":/newbackground.jpg")
         self.group_name = group_name
         self.mwindow = mwindow
         self.members = members if members is not None else []
         
         self.unacknowledged_messages: Dict[int, ChatCanvas.MessageWidget] = {}
 
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.showContextMenu)
         self.group_header = QFrame()
         self.group_header.setObjectName("header")
         header_layout = QVBoxLayout(self.group_header)
@@ -305,8 +307,37 @@ class ChatCanvas(QFrame):
         """Draw background image, keeping aspect ratio."""
         super().paintEvent(e)
         dx = self.mwindow.sidebar_widget.width()
-        pixmap = self.bg_pixmap.scaled(
+        pixmap = self.mwindow.bg_pixmap.scaled(
             self.mwindow.width(), self.mwindow.height(),
             Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
         QPainter(self).drawPixmap(-dx, 0, pixmap)
 
+    def showContextMenu(self, pos: QPoint) -> None:
+        """Show context menu on right click."""
+        contextMenu = QMenu("Context menu", self)
+        action = QAction("Set Wallpaper", self)
+        action.triggered.connect(self.setWallpaper)
+        contextMenu.addAction(action)
+        contextMenu.exec(self.mapToGlobal(pos))
+
+    def setWallpaper(self) -> None:
+        """Pick and set wallpaper."""
+        fn = QFileDialog.getOpenFileName(self, "Set Wallpaper", ".", "Image Files (*.png *.jpg *.bmp)")[0]
+        # Ignore cancelled file pickers
+        if not fn:
+            return
+        pm = QPixmap()
+        # Ignore invalid images
+        if not pm.load(fn):
+            return
+        self.mwindow.bg_pixmap = pm
+        self.mwindow.settings.setValue("wallpaper", fn)
+        # Generate the blurred background
+        blur = QGraphicsBlurEffect()
+        blur.setBlurRadius(100)
+        bg_pixmap_alt = applyEffectToPixmap(QPixmap(pm), blur)
+        data_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+        wallpaper_alt_path = os.path.join(data_dir, "wallpaper_alt.png")
+        bg_pixmap_alt.save(wallpaper_alt_path)
+        self.mwindow.bg_pixmap_alt = bg_pixmap_alt
+        self.mwindow.settings.setValue("wallpaper_alt", wallpaper_alt_path)

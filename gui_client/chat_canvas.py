@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 import logging
-from typing import TYPE_CHECKING, Dict, Any, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 
 from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton, QApplication
 from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
@@ -29,8 +29,10 @@ class ChatCanvas(QFrame):
         padding: 10px;
     """
     HEADER_SS = """
-        background-color: #0b2e6e;
-        padding: 10px 15px;
+        #header {
+            background-color: #0b2e6e;
+            padding: 10px 15px;
+        }
     """
     TITLE_SS = """
         font-weight: bold;
@@ -135,20 +137,24 @@ class ChatCanvas(QFrame):
             self.parentWidget().layout().setAlignment(self, al)
 
     
-    def __init__(self, group_name: str, mwindow: MainWindow):
+    def __init__(self, group_name: str, mwindow: MainWindow, members: Optional[List[str]] = None):
         """Initialize for a given group."""
         super().__init__()
         self.group_name = group_name
         self.mwindow = mwindow
+        self.members = members if members is not None else []
         
         self.unacknowledged_messages: Dict[int, ChatCanvas.MessageWidget] = {}
 
         self.group_header = QFrame()
+        self.group_header.setObjectName("header")
         header_layout = QVBoxLayout(self.group_header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         self.group_title = QLabel(group_name)
         self.group_title.setStyleSheet(self.TITLE_SS)
+        self.members_label = QLabel(", ".join(self.members))
         header_layout.addWidget(self.group_title)
+        header_layout.addWidget(self.members_label)
         self.group_header.setStyleSheet(self.HEADER_SS)
 
         self.text_input = QLineEdit()

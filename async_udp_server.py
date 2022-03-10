@@ -24,16 +24,17 @@ class SqliteGroupLayer(object):
         self.db_controller.new_group(group)
         # Extremely inefficient but let's keep it simple
         for mname in members:
-            self.group_sub(group, mname)
+            self.group_sub(group, mname, members)
 
-    def group_sub(self, group: str, username: str) -> None:
+    def group_sub(self, group: str, username: str, members: Optional[List[str]] = None) -> None:
         """Register a channel in an existing group."""
         self.db_controller.new_member(username, group)
         addr = self.db_controller.addr_for_user(username)
         if addr:
             self.protocol.send_message({
-                "type": "GRP_ADD",
-                "group": group
+                "type": "GRP_SUB",
+                "group": group,
+                "Members": members
             }, addr=addr, verify_delay=2)
         logging.info(f"Subscribe {username} to group '{group}'")
 
@@ -152,7 +153,7 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
                     members.append(user_name)
                 self.group_layer.group_add(group_name, members)
                 logging.info(f"{user_name} created new group: '{group_name}'")
-                return 200, {"group": group_name}, None
+                return 200, {"group": group_name, "Members": members}, None
             except ItemAlreadyExistsException:
                 return 400, None, "Group with this name already exists"
             except Exception as e:

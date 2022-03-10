@@ -91,10 +91,10 @@ class MainWindow(QMainWindow):
                 if msgw:
                     msgw.setReadByAll()
         # The user was added to a new group
-        elif msg.type == UDPMessage.MessageType.GRP_ADD:
+        elif msg.type == UDPMessage.MessageType.GRP_SUB:
             if msg.data and "group" in msg.data:
                 self.groups.add(msg.data["group"])
-                self.sidebar_widget.onCreateGroup(msg.data["group"])
+                self.sidebar_widget.onCreateGroup(msg.data["group"], msg.data.get("Members"))
 
     async def create_client(self, server_addr: Address):
         """Await the creation of a new client."""
@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
                 # Make sure the group hasn't already been fetched
                 if gname not in self.groups:
                     self.groups.add(gname)
-                    window = ChatCanvas(gname, self)
+                    window = ChatCanvas(gname, self, members=g.get("Members"))
                     self.content_widget.addWidget(window)
                     self.sidebar_widget.addChatWindow(window)
             for w in self.chatWindows():

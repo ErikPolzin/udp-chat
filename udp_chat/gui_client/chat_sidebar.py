@@ -2,9 +2,10 @@ import asyncio
 from typing import TYPE_CHECKING, Any, List, Optional
 import logging
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QLabel, QLineEdit, QCheckBox
 from PyQt5.QtWidgets import QPushButton, QSizePolicy, QFrame, QHBoxLayout, QGroupBox
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QPixmap, QPainter, QPaintEvent
 
 from udp_chat.protocol import UDPMessage
 from .chat_canvas import ChatCanvas
@@ -19,20 +20,21 @@ class ChatSidebar(QDockWidget):
     """Displays chats in the sidebar."""
 
     HEADER_SS = """
-        background-color: #0b2e6e;
+        #sbheader {
+            background-color: rgba(46, 44, 159, 0.7);
+        }
     """
     TITLE_SS = """
         font-weight: bold;
         font-size: 20px;
     """
-
-    SIDEBAR_SS = "background-color: #454545"
     
     def __init__(self, username, mwindow: 'MainWindow'):
         """Initialize the chat sidebar."""
         super().__init__()
         self.username = username
         self.active_tab: Optional[QFrame] = None
+        self.bg_pixmap = QPixmap(":/background-blurred.png")
 
         self.content_widget = QWidget()
         self.content_widget.setLayout(QVBoxLayout())
@@ -42,6 +44,7 @@ class ChatSidebar(QDockWidget):
         # Create the groups header
         self.group_header = QFrame()
         self.group_header.setMinimumWidth(300)
+        self.group_header.setObjectName("sbheader")
         header_layout = QHBoxLayout(self.group_header)
         self.group_title = QLabel(username)
         self.group_title.setStyleSheet(self.TITLE_SS)
@@ -210,5 +213,13 @@ class ChatSidebar(QDockWidget):
         for cb in self.member_list.findChildren(QCheckBox):
             if cb.isChecked():
                 yield cb.text()
+
+    def paintEvent(self, e: QPaintEvent):
+        """Draw blurred background image, keeping aspect ratio."""
+        super().paintEvent(e)
+        pixmap = self.bg_pixmap.scaled(
+            self.mwindow.width(), self.mwindow.height(),
+            Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        QPainter(self).drawPixmap(0, 0, pixmap)
 
 

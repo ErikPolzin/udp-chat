@@ -187,7 +187,9 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
                 cred_valid = self.db_controller.user_login(user_name, password, addr)
             except ItemNotFoundException:
                 return 400, None, "Account doesn't exist."
-            return 200, {"credentials_valid": cred_valid, "username": user_name}, None
+            if not cred_valid:
+                return 400, None, "Invalid credentials"
+            return 200, {"username": user_name}, None
         elif mtype == UDPMessage.MessageType.USR_ADD:
             straddr = f"{addr[0]}:{addr[1]}"
             created = self.db_controller.new_user(user_name, password, straddr)
@@ -220,26 +222,26 @@ def get_host_and_port(random_port=False) -> Address:
         host, port = '127.0.0.1', 5000
     return (host, None) if random_port else (host, port)  # type: ignore
 
-async def main():
+def main():
     logging.basicConfig(level=logging.DEBUG)
     host, port = get_host_and_port()
     logging.info(f"Starting UDP server at {host}:{port}...")
 
     loop = asyncio.get_event_loop()
 
-    transport, protocol = await loop.create_datagram_endpoint(
+    endpoint_coro = loop.create_datagram_endpoint(
         lambda: ServerChatProtocol(),
         local_addr=(host, port))
+    transport, protocol = loop.run_until_complete(endpoint_coro)
 
     try:
-        await asyncio.sleep(3600)
+        loop.run_forever()
+    except KeyboardInterrupt:
+        print("Caught keyboard interrupt")
     finally:
         transport.close()
+        print("Closed transport.")
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logging.info("Caught keyboard interrupt, exiting...")
-        sys.exit(0)
+    main()

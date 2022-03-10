@@ -157,11 +157,8 @@ class LoginDialog(QDialog):
         if response_code != 200:
             self.showError(f"Login unsuccessful: {msg.data.get('error')}")
         else:
-            if not response_data.get("credentials_valid"):
-                self.showError("Credentials invalid")
-                return
             self.done(1)
-            username = msg.data.get("response", {}).get("username")
+            username = response_data.get("username")
             if username is not None:
                 self.mwindow.onLogin(username)
 

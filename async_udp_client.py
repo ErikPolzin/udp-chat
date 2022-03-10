@@ -4,6 +4,7 @@ from datetime import datetime
 import sys
 from typing import Callable, Optional, Set
 import logging
+from getpass import getpass
 
 from protocol import TimeoutRetransmissionProtocol, UDPHeader, UDPMessage, Address
 from async_udp_server import get_host_and_port
@@ -104,45 +105,78 @@ class ClientChatProtocol(TimeoutRetransmissionProtocol):
         self.on_con_lost.set_result(True)
 
 
-async def ainput(string: Optional[str] = None) -> str:
+def cli_receive_message(msg: UDPMessage) -> None:
+    """Cli received a message, print it to the terminal."""
+    if msg.type == msg.MessageType.CHT and msg.data:
+        group = msg.data.get("group", "<No group>")
+        fromuser = msg.data.get("username", "anonymous")
+        text = msg.data.get("text", "-")
+        print(f"\r{fromuser}@{group}: {text}")
+        print("Type a message: ", end="")
+
+
+async def ainput(prompt: str = '') -> str:
     """Await user input from standard input."""
-    if string:
-        await asyncio.get_event_loop().run_in_executor(
-                None, lambda s=string: sys.stdout.write(s+' '))
+    sys.stdout.write(prompt)
     return str(await asyncio.get_event_loop().run_in_executor(
             None, sys.stdin.readline)).strip("\n")
 
-async def main(server_addr: Address):
+
+async def wait_for_command_then_send(protocol: ClientChatProtocol):
+    """Wait for user to type a line, then send it to the server through a protocol."""
+    # Wait for user to successfully log in
+    while True:
+        username = input("Username: ")
+        password = getpass()
+        resp = await protocol.send_message({
+            "type": "USR_LOGIN",
+            "username": username,
+            "password": password,
+        })
+        if resp.data.get("status") == 200:
+            protocol.username = username
+            protocol.set_receive_listener(cli_receive_message)
+            print("Logged in!")
+            break
+        print("Error:", resp.data.get("error"))
+    while True:
+        text = await ainput("Type a message: ")
+        # Extract message type from input
+        mtype = UDPMessage.MessageType.CHT
+        group = "default"
+        if ":" in text:
+            mtype_txt, text = text.split(":")
+            mtype = UDPMessage.MessageType(mtype_txt)
+        # Extract group name from input
+        if "GRP=" in text:
+            text, group = text.split("GRP=")
+        protocol.send_message({
+            "type": mtype.value,
+            "text": text, 
+            "group": group,
+            "time_sent": datetime.now().isoformat(),
+            "username": username})
+
+
+def main(server_addr: Address):
     """Run the client, sending typed messages from the terminal to the default chat room."""
     logging.info(f"Listening for events from {server_addr[0]}:{server_addr[1]}...")
-    protocol: ClientChatProtocol = await ClientChatProtocol.create(server_addr, "root")
+    loop = asyncio.get_event_loop()
+    protocol = loop.run_until_complete(ClientChatProtocol.create(server_addr, None))
     try:
-        while True:
-            text = await ainput()
-            # Extract message type from input
-            mtype = UDPMessage.MessageType.CHT
-            group = "default"
-            if ":" in text:
-                mtype_txt, text = text.split(":")
-                mtype = UDPMessage.MessageType(mtype_txt)
-            # Extract group name from input
-            if "GRP=" in text:
-                text, group = text.split("GRP=")
-            protocol.send_message({
-                "type": mtype.value,
-                "text": text, 
-                "group": group,
-                "time_sent": datetime.now().isoformat(),
-                "username": "root"})
+        loop.run_until_complete(wait_for_command_then_send(protocol))
+    except KeyboardInterrupt:
+        print("Caught keyboard interrupt")
     finally:
         if protocol.transport:
+            print("Sending FIN to close connection...")
+            # Send a FIN message to the server.
+            fin_msg = UDPMessage(UDPHeader(0, FIN=True), {})
+            loop.run_until_complete(protocol.send_message(msg=fin_msg, addr=server_addr))
             protocol.transport.close()
+            print("Closed transport.")
 
 
 if __name__ == "__main__":
-    server_addr = get_host_and_port(random_port=True)
-    try:
-        asyncio.run(main(server_addr))
-    except KeyboardInterrupt:
-        logging.info("Caught keyboard interrupt, exiting...")
-        sys.exit(0)
+    server_addr = get_host_and_port()
+    main(server_addr)

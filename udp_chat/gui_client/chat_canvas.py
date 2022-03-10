@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from PyQt5.QtWidgets import QScrollArea, QLabel, QVBoxLayout, QPushButton, QApplication
 from PyQt5.QtWidgets import QSizePolicy, QLineEdit, QWidget, QHBoxLayout, QFrame
 from PyQt5.QtCore import pyqtSignal, Qt, pyqtSlot
-from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtGui import QIcon, QPixmap, QPainter, QPaintEvent
 
 from udp_chat.protocol import UDPMessage
 from .utils import LineWidget
@@ -140,6 +140,7 @@ class ChatCanvas(QFrame):
     def __init__(self, group_name: str, mwindow: MainWindow, members: Optional[List[str]] = None):
         """Initialize for a given group."""
         super().__init__()
+        self.bg_pixmap = QPixmap(":/background.jpeg")
         self.group_name = group_name
         self.mwindow = mwindow
         self.members = members if members is not None else []
@@ -177,8 +178,6 @@ class ChatCanvas(QFrame):
         self.scroll_widget.setFrameStyle(QFrame.NoFrame)
         self.viewport_widget = QWidget()
         self.setObjectName("canvas") 
-        # Ensure the background image is applied only to the background
-        self.setStyleSheet("#canvas{border-image: url(':/background.jpeg') 0 0 0 0 stretch stretch;}")
         self.view_layout = QVBoxLayout(self.viewport_widget)
         # Ensure the background is visible through the viewport
         self.viewport_widget.setStyleSheet("background-color: rgba(0,0,0,0)")
@@ -290,4 +289,11 @@ class ChatCanvas(QFrame):
                 if msg.message_id == mid:
                     return msg
         return None
+
+    def paintEvent(self, e: QPaintEvent):
+        """Draw background image, keeping aspect ratio."""
+        super().paintEvent(e)
+        pixmap = self.bg_pixmap.scaled(
+            self.width(), self.height(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        QPainter(self).drawPixmap(0, 0, pixmap)
 

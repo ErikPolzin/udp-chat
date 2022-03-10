@@ -231,7 +231,7 @@ class ChatCanvas(QFrame):
             widget.setReadByAll()
         widget.setAlignmentAccordingToUsername(self.mwindow.username)
         # Change the vlurb and notify listeners
-        self.blurb = text
+        self.blurb = f"{username}: {text}"
         self.blurbChanged.emit(self.blurb)
         return widget
 

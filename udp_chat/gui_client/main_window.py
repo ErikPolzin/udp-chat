@@ -41,7 +41,10 @@ class MainWindow(QMainWindow):
         logging.info(f"Created GUI client at {server_addr[0]}:{server_addr[1]}")
         self.settings = QSettings("uct.ac.za", "udpchat")
         self.bg_pixmap = QPixmap(self.settings.value("wallpaper", ":/background.jpg", type=str))
-        self.bg_pixmap_alt = QPixmap(self.settings.value("wallpaper_alt", ":/background-blurred.jpg", type=str))
+        self.bg_pixmap_alt = QPixmap()
+        # If the alternative pixmap couldn't be loaded, use the default one
+        if not self.bg_pixmap_alt.load(self.settings.value("wallpaper_alt", ":/background-blurred.jpg", type=str)):
+            self.bg_pixmap_alt = self.bg_pixmap
         self.message_backlog: Queue[UDPMessage] = Queue()
         self.first_connect = True
         self.username = None

@@ -13,7 +13,7 @@
 
 or 
 
-3. Run "pip install -e ."
+1. Run "pip install -e ."
 
 -----------------------------------------------------------------
         2. Starting the server

@@ -8,12 +8,9 @@
         1. Create a python virtual enviroment
 -----------------------------------------------------------------
 
-1. Run "make venv" to create the virtual enviroment.
+1. Run "python3 -m venv venv" to create the virtual enviroment.
 2. Run "source venv/bin/activate" to activate the virtual enviroment.
-
-or 
-
-1. Run "pip install -e ."
+3. Run "pip install -e ." to install dependencies to the virtual environment
 
 -----------------------------------------------------------------
         2. Starting the server
@@ -55,4 +52,4 @@ Connect to a server IP address
         5. Delete the enviroment
 -----------------------------------------------------------------
 
-1. Run "make clean" to delete the virtual enviroment
+1. Run "rm -rf venv" to delete the virtual enviroment

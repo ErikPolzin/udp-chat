@@ -1,31 +1,54 @@
-# Asynchronous UDP-based chat app
+-----------------------------------------------------------------
+        AYSNCHRONOUS UDP-BASED CHAT APPLICATION
+-----------------------------------------------------------------
 
-## Running the server
+        How to set up and run the application.
 
-To start the server, run
-```bash
-python3 -m udp_chat.server
-```
+-----------------------------------------------------------------
+        1. Create a python virtual enviroment
+-----------------------------------------------------------------
 
-Provide optional command-line arguments `HOST, PORT`, i.e.:
-```bash
-python3 -m udp_chat.server 192.168.10.109 4999
-```
+1. Run "make venv" to create the virtual enviroment.
+2. Run "venv/bin/activate" to activate the virtual enviroment.
 
+-----------------------------------------------------------------
+        2. Starting the server
+-----------------------------------------------------------------
 
-## Creating a text-based client
+On localhost
+1. Run "make server" to start running the server.
 
-To create a client connection in the terminal window, run
-```bash
-python3 -m udp_chat.client
-```
+On specified IP address
+1. Run "make server (IP address) (port number)" to start running the server
 
-Type a message into the console, and see it broadcast to other clients in the default chat group.
+-----------------------------------------------------------------
+        3. Starting a client GUI
+-----------------------------------------------------------------
 
+In a new terminal:
 
-## Running a GUI client
+Connect to a server on localhost
+1. Run "make gui" to start the client GUI 
 
-Ensure PyQT5 is installed. Then run (from the root directory):
-```bash
-python3 -m udp_chat.gui_client
-```
+Connect to a server IP address 
+1. Run "make gui (IP address) (port number)" to start the client GUI 
+
+-----------------------------------------------------------------
+        4. Starting a command line client
+-----------------------------------------------------------------
+
+### Must already have created an account ###
+
+In a new terminal:
+
+Connect to a server on localhost
+1. Run "make cli" to start the client 
+
+Connect to a server IP address 
+1. Run "make cli (IP address) (port number)" to start the client GUI 
+
+-----------------------------------------------------------------
+        5. Delete the enviroment
+-----------------------------------------------------------------
+
+1. Run "make clean" to delete the virtual enviroment

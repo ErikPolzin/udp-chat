@@ -341,3 +341,4 @@ class ChatCanvas(QFrame):
         bg_pixmap_alt.save(wallpaper_alt_path)
         self.mwindow.bg_pixmap_alt = bg_pixmap_alt
         self.mwindow.settings.setValue("wallpaper_alt", wallpaper_alt_path)
+        self.update()

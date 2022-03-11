@@ -1,15 +1,13 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
-    <file>background.jpeg</file>
-    <file>background-blurred.png</file>
+    <file>background.jpg</file>
+    <file>background-blurred.jpg</file>
     <file>send.png</file>
     <file>check.png</file>
     <file>check-all.png</file>
     <file>check-all-blue.png</file>
     <file>add-group.png</file>
     <file>clock.png</file>
-    <file>newbackground.jpg</file>
-    <file>sidebar.jpg</file>
     <file>loading-circular.gif</file>
     <file>icon.png</file>
 </qresource>

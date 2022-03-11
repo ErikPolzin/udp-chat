@@ -9,17 +9,21 @@
 -----------------------------------------------------------------
 
 1. Run "make venv" to create the virtual enviroment.
-2. Run "venv/bin/activate" to activate the virtual enviroment.
+2. Run "source venv/bin/activate" to activate the virtual enviroment.
+
+or 
+
+3. Run "pip install -e ."
 
 -----------------------------------------------------------------
         2. Starting the server
 -----------------------------------------------------------------
 
 On localhost
-1. Run "make server" to start running the server.
+1. Run "python3 -m udp_chat.server" to start running the server. 
 
 On specified IP address
-1. Run "make server (IP address) (port number)" to start running the server
+1. Run "python3 -m udp_chat.server (IP address) (port number)" to start running the server
 
 -----------------------------------------------------------------
         3. Starting a client GUI
@@ -28,10 +32,10 @@ On specified IP address
 In a new terminal:
 
 Connect to a server on localhost
-1. Run "make gui" to start the client GUI 
+1. Run "python3 -m udp_chat.gui_client" to start the client GUI 
 
 Connect to a server IP address 
-1. Run "make gui (IP address) (port number)" to start the client GUI 
+1. Run "python3 -m udp_chat.gui_client (IP address) (port number)" to start the client GUI
 
 -----------------------------------------------------------------
         4. Starting a command line client
@@ -42,10 +46,10 @@ Connect to a server IP address
 In a new terminal:
 
 Connect to a server on localhost
-1. Run "make cli" to start the client 
+1. Run "python3 -m udp_chat.client" to start the client 
 
 Connect to a server IP address 
-1. Run "make cli (IP address) (port number)" to start the client GUI 
+1. Run "python3 -m udp_chat.client (IP address) (port number)" to start the client GUI 
 
 -----------------------------------------------------------------
         5. Delete the enviroment

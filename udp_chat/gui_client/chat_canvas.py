@@ -338,7 +338,12 @@ class ChatCanvas(QFrame):
         bg_pixmap_alt = applyEffectToPixmap(QPixmap(pm), blur)
         data_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
         wallpaper_alt_path = os.path.join(data_dir, "wallpaper_alt.png")
-        bg_pixmap_alt.save(wallpaper_alt_path)
-        self.mwindow.bg_pixmap_alt = bg_pixmap_alt
-        self.mwindow.settings.setValue("wallpaper_alt", wallpaper_alt_path)
+        # Try save the blurred image to a user data file
+        if bg_pixmap_alt.save(wallpaper_alt_path):
+            self.mwindow.bg_pixmap_alt = bg_pixmap_alt
+            self.mwindow.settings.setValue("wallpaper_alt", wallpaper_alt_path)
+        else:
+            # Fall back to the main background
+            self.mwindow.bg_pixmap_alt = self.mwindow.bg_pixmap
+            self.mwindow.settings.setValue("wallpaper_alt", fn)
         self.update()

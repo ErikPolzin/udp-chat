@@ -215,12 +215,23 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
 
 def get_host_and_port(random_port=False) -> Address:
     """Get the host and port from system args."""
+    host, port = '127.0.0.1', 5000
     if len(sys.argv) == 3:
         host, port = sys.argv[1], int(sys.argv[2])
     elif len(sys.argv) == 2:
-        host, port = sys.argv[1], 5000
-    else:
-        host, port = '127.0.0.1', 5000
+        # Parse host/port from protocol string
+        if sys.argv[1].startswith("udpchat://"):
+            url_params = sys.argv[1][len("udpchat://"):].split(":")
+            if len(url_params) == 2:
+                if not url_params[1].isnumeric():
+                    url_params[1] = '5000'
+                host, port = url_params[0], int(url_params[1])
+            elif len(url_params) == 1:
+                host, port = url_params[0], 5000
+            else:
+                host, port = ":".join(url_params[1:]), 5000
+        else:
+            host, port = sys.argv[1], 5000
     return (host, None) if random_port else (host, port)  # type: ignore
 
 def main() -> None:

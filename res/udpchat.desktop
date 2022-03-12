@@ -1,0 +1,11 @@
+#!/usr/bin/env run_udpchat
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=UDPChat
+Comment=UDP-based chat application
+Exec=run_udpchat.sh %u
+Icon=UDPChat.png
+Categories=Utility;
+MimeType=x-scheme-handler/udpchat;
+StartupNotify=true

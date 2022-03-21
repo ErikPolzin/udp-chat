@@ -1,8 +1,16 @@
 from setuptools import setup, find_packages
+import pathlib
+
+
+HERE = pathlib.Path(__file__).parent
+README = (HERE / "README.md").read_text()
+
 
 setup(name='udp_chat',
-    version='0.1.1',
+    version='0.1.2',
     description='UDP-based chat application',
+    long_description=README,
+    long_description_content_type="text/markdown",
     url='https://github.com/ErikPolzin/udp-chat',
     author='Ohio Imevbore, Luke Slater, Erik Polzin',
     license='MIT',

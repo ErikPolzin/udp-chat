@@ -191,8 +191,6 @@ class ChatSidebar(QDockWidget):
         for i in range(self.member_list.layout().count()-1, -1, -1):
             self.member_list.layout().itemAt(i).widget().setParent(None)
         msg: UDPMessage = resp.result()
-        if msg.data is None:
-            return
         response_code = msg.data.get("status")
         usernames = msg.data.get("response", [])
         if response_code != 200:

@@ -96,6 +96,7 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
             return False
         # Mimic 20% of UDP packets not arriving
         if random.random() < 0.2 or self.transport is None:
+            logging.debug("Dropping UDP packet")
             return False
         msg = UDPMessage.from_bytes(data)
         if msg.header.SYN:
@@ -104,7 +105,6 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
         if msg.header.FIN:
             self.client_connection_terminated(addr)
         ack_msg = UDPMessage(UDPHeader(msg.header.SEQN, ACK=True, SYN=False), {})
-        assert ack_msg.data is not None  # Keep mypy happy
         # Determine the message type and process accordingly
         if msg.data and msg.type:
             status, rdata, error = self.message_received(msg, addr)
@@ -119,7 +119,7 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
             self, msg: UDPMessage, addr: Address
         ) -> Tuple[int, Optional[Union[List, Dict]], Optional[str]]:
         """Received a message with an associated type. Usually called after datagram_received()."""
-        assert msg.data is not None and msg.type is not None
+        assert msg.type is not None
         mtype = msg.type
         group_name = msg.data.get("group", "General Chat Room")
         user_name = msg.data.get("username", "root")
@@ -128,6 +128,7 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
         if mtype == UDPMessage.MessageType.CHT:
             text = msg.data.get("text")
             if not isinstance(text, str):
+                logging.debug("Received chat message with no text!")
                 return 400, None, "No text specified"
             # Try parse the tmessage's send time, or pick current server time
             time_sent = datetime.now()
@@ -137,6 +138,7 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
             try:
                 mid = self.db_controller.new_message(group_name, user_name, text, time_sent)
             except Exception as e:
+                logging.debug(f"Unable to save message: {e}")
                 return 500, None, f"Unable to save message: {e}"
             # Save a reference to the message ID
             msg.data["MessageID"] = mid
@@ -187,7 +189,7 @@ class ServerChatProtocol(TimeoutRetransmissionProtocol):
             try:
                 cred_valid = self.db_controller.user_login(user_name, password, addr)
             except ItemNotFoundException:
-                return 400, None, "Account doesn't exist."
+                return 400, {"no_account": True}, "Account doesn't exist."
             if not cred_valid:
                 return 400, None, "Invalid credentials"
             return 200, {"username": user_name}, None

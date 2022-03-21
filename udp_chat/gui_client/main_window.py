@@ -68,9 +68,6 @@ class MainWindow(QMainWindow):
         """Client received a new message."""
         # GUI received a new chat message
         if msg.type == UDPMessage.MessageType.CHT:
-            if msg.data is None:
-                logging.warning("Received message with no data!")
-                return
             try:
                 text = str(msg.data["text"])
                 username = str(msg.data["username"])
@@ -86,9 +83,6 @@ class MainWindow(QMainWindow):
                 w.addMessage(seqn, text, username, time_sent, ack=True, mid=mid)
         # A message was delivered to all recipients
         elif msg.type == UDPMessage.MessageType.MSG_RBA:
-            if msg.data is None:
-                logging.warning("Received message with no data!")
-                return
             group = str(msg.data["group"])
             mid = int(msg.data["MessageID"])
             w = self.getChatWindow(group)

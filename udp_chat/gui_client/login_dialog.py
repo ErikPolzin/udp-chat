@@ -126,8 +126,6 @@ class LoginDialog(QDialog):
             self.showError("Could not reach server..")
             return
         msg: UDPMessage = resp.result()
-        if msg.data is None:
-            return
         g = msg.data.get("response", {})
         created = g.get("created_user", False)
         if not created:
@@ -150,8 +148,6 @@ class LoginDialog(QDialog):
             self.showError("Could not contact server.")
             return
         msg: UDPMessage = resp.result()
-        if msg.data is None:
-            return
         response_code = msg.data.get("status")
         response_data = msg.data.get("response", {})
         if response_code != 200:

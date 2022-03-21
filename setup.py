@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name='udp_chat',
-    version='0.1',
+    version='0.1.1',
     description='UDP-based chat application',
     url='https://github.com/ErikPolzin/udp-chat',
     author='Ohio Imevbore, Luke Slater, Erik Polzin',
@@ -10,7 +10,8 @@ setup(name='udp_chat',
     zip_safe=False,
     install_requires=[
         'PyQt5>=5.14.1',
-        'qasync>=0.23.0'
+        'qasync>=0.23.0',
+        'pygments'
     ],
     entry_points={
         'console_scripts': [

@@ -54,9 +54,9 @@ class UDPMessage(object):
     def __init__(self, header: UDPHeader, data: Optional[Dict] = None):
         """Initialize a chat message from header and data."""
         self.header = header
-        self.data = data
+        self.data: Dict = {} if data is None else data
         self.type: Optional[UDPMessage.MessageType] = None
-        if self.data is not None and "type" in self.data:
+        if "type" in self.data:
             try:
                 self.type = self.MessageType(self.data["type"])
             except ValueError:
